@@ -3,13 +3,11 @@ import copy
 import csv
 from datetime import datetime
 import functools
-import importlib
 import json
 import locale
 import logging
 import math
 from pathlib import Path
-import sys
 from time import sleep
 
 from api.ratelimitedapi import RateLimitedApi
@@ -115,7 +113,7 @@ class Coordinator:
                     # Reuse the backtest
                     existing_bt = next((bt for bt in self.backtests if bt["name"] == test.name), None)
                     if existing_bt:
-                        logger.warning(f"{test.name} was previously launched but not recorded")
+                        self.logger.warning(f"{test.name} was previously launched but not recorded")
                         test.backtest_id = existing_bt["backtestId"]
                         test.state = TestState.RUNNING
                     else:
@@ -159,12 +157,12 @@ class Coordinator:
             self.logger.error(f"{test.name} update_parameters_file failed")
             return
 
-        compile_id = api.compile(self.project_id)
+        compile_id = self.api.compile(self.project_id)
         if not compile_id:
             self.logger.error(f"{test.name} compile failed")
             return
         
-        create_backtest_resp = api.create_backtest(self.project_id, compile_id, test.name)
+        create_backtest_resp = self.api.create_backtest(self.project_id, compile_id, test.name)
         if not create_backtest_resp["success"]:
             self.logger.error(f"{test.name} create_backtest failed")
             self.logger.error(create_backtest_resp)
@@ -291,26 +289,3 @@ class Coordinator:
         # new file with fewer bytes than previous
         with self.state_path.open('w') as f:
             json.dump(state, f, indent=4)
-
-
-if __name__ == "__main__":
-    logging.basicConfig(  # configures root logger, more succinct than wiring up handlers on object directly
-        level=logging.DEBUG,
-        format="%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s]  %(message)s",
-        stream=sys.stdout
-    )
-    logger = logging.getLogger()  # root logger
-    # Framework parameters
-    data_dir = Path("C:/Users/karth/Documents/Backtests")
-    with (data_dir / "config.json").open() as cf:
-        config = json.load(cf)
-    logger.info(str(config))
-    try:
-        mod = importlib.import_module(config["module"])
-        testset = getattr(mod, config["testset"])
-        api = RateLimitedApi(config["user_id"], config["token"], debug=False)
-        coordinator = Coordinator(testset, api, config, data_dir)
-        coordinator.run()
-    except Exception as e:
-        logger.error("Unhandled error", exc_info=e)
-        sys.exit(1)

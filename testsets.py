@@ -10,34 +10,37 @@ import coolname.data
 import random
 from sklearn.model_selection import ParameterGrid
 
+
 class TestState(Enum):
     CREATED = "CREATED"
     RUNNING = "RUNNING"
     COMPLETED = "COMPLETED"
     ERROR = "ERROR"
 
+
 USA_EQ_BEAR_MARKETS = [
-    (date(2000,1,1), date(2002,1,1)),
-    (date(2007,10,1), date(2009,3,1)), #extremely high volatility
+    (date(2000, 1, 1), date(2002, 1, 1)),
+    (date(2007, 10, 1), date(2009, 3, 1)),  # extremely high volatility
 ]
 USA_EQ_LOW_VOL_BULL_MARKETS = [
-    (date(2013,1,1), date(2014,6,30)),
+    (date(2013, 1, 1),  date(2014, 6, 30)),
 ]
 USA_EQ_HIGH_VOL_BULL_MARKETS = [
-    (date(2018,1,1), date(2020,12,31)),
+    (date(2018, 1, 1),  date(2020, 12, 31)),
 ]
 USA_EQ_BULL_MARKETS = [
-    (date(2002,1,1), date(2007,10,1)),
-    (date(2009,3,1), date(2014,12,1)),
-    (date(2016,11,1), date(2021,2,1)),
+    (date(2002, 1, 1),  date(2007, 10, 1)),
+    (date(2009, 3, 1),  date(2014, 12, 1)),
+    (date(2016, 11, 1),  date(2021, 2, 1)),
 ]
 USA_EQ_SIDEWAYS_MARKETS = [
-    (date(2014,12,1), date(2016,11,1)), # Includes volatility spike in 8/2015
+    (date(2014, 12, 1),  date(2016, 11, 1)),  # Includes volatility spike in 8/2015
 ]
+
 
 class Test:
     """Utility class for grouping together various pieces of information about a test."""
-    def __init__(self, name: str, params: dict, backtest_id = None, state = TestState.CREATED):
+    def __init__(self, name: str, params: dict, backtest_id=None, state=TestState.CREATED):
         self.name = name
         self.params = params
         self.backtest_id = backtest_id
@@ -50,11 +53,13 @@ class Test:
     def from_dict(d: dict):
         return Test(d["name"], d["params"], d["backtest_id"], TestState(d["state"]))
 
+    @staticmethod
     def generate_name(prefix, params):
         seed = hashlib.sha256(f"{prefix}{json.dumps(params)}".encode("utf-8")).digest()
         generator = coolname.RandomGenerator(coolname.data.config, random.Random(seed))
         cool_name = ''.join(x.capitalize() for x in generator.generate())
         return f"{prefix}_{cool_name}"
+
 
 # TODO: Flesh out abstract class once have multiple generator types
 # TODO: Maybe a method that exposes if it is a fixed size
@@ -75,6 +80,7 @@ class TestSet(ABC):
     def report(self, results):
         pass
 
+
 class MultiPeriod:
     """Exercise the algorithm with a constant set of parameters over a range of time periods"""
     def __init__(self, periods: list, params: dict):
@@ -87,7 +93,7 @@ class MultiPeriod:
         return f"mp_{start.isoformat()}_{end.isoformat()}"
 
     def permutations(self):
-        '''Return a generator that yields Test objects'''
+        """Return a generator that yields Test objects"""
         for (start, end) in self.periods:
             params = copy.deepcopy(self.params)
             params["start"] = start.isoformat()
@@ -96,14 +102,16 @@ class MultiPeriod:
             test = Test(name, params)
             yield test
 
+
 class MultiPeriodYearly(MultiPeriod):
     def __init__(self, start_year: int, years: int, params: dict):
         periods = []
         for i in range(start_year, start_year + years):
             start = date(i, 1, 1)
-            end = start.replace(year = start.year + 1) - timedelta(days=1)
+            end = start.replace(year=start.year + 1) - timedelta(days=1)
             periods.append((start, end))
         super().__init__(periods, params)
+
 
 class MultiPeriodInterval(MultiPeriod):
     """Exercise the algorithm with a constant set of parameters over a range of time periods"""
@@ -115,6 +123,7 @@ class MultiPeriodInterval(MultiPeriod):
             periods.append((start, end))
             start = end + timedelta(days=1)
         super().__init__(periods, params)
+
 
 class ParamSignificance:
     """Cycle one parameter at a time while keeping the rest at passed in defaults. So the total number of tests run
@@ -133,8 +142,8 @@ class ParamSignificance:
 
     def permutations(self):
         for (start, end) in self.periods:
-            for (key, range) in self.param_ranges.items():
-                for value in range:
+            for (key, param_range) in self.param_ranges.items():
+                for value in param_range:
                     params = copy.deepcopy(self.defaults)
                     params[key] = value
                     params["start"] = start.isoformat()
@@ -143,11 +152,12 @@ class ParamSignificance:
                     test = Test(name, params)
                     yield test
 
+
 class GridSearch:
-    def __init__(self, periods: list, param_grid: dict, filter = None):
+    def __init__(self, periods: list, param_grid: dict, params_filter=None):
         self.periods = periods
         self.param_grid = param_grid
-        self.filter = filter
+        self.params_filter = params_filter
 
     def name(self):
         start = self.periods[0][0]
@@ -158,10 +168,9 @@ class GridSearch:
         for (start, end) in self.periods:
             grid = ParameterGrid(self.param_grid)
             for params in grid:
-                if self.filter and self.filter(params):
+                if self.params_filter and self.params_filter(params):
                     params["start"] = start.isoformat()
                     params["end"] = end.isoformat()
                     name = Test.generate_name(f"{self.name()}", params)
                     test = Test(name, params)
                     yield test
-                    

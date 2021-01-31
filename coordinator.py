@@ -13,10 +13,10 @@ import sys
 from time import sleep
 
 from api.ratelimitedapi import RateLimitedApi
-import algos
 from testsets import Test, TestState
 
 locale.setlocale(locale.LC_ALL, 'en_US.UTF8')
+
 
 class Coordinator:
     logger = logging.getLogger(__name__)
@@ -32,8 +32,8 @@ class Coordinator:
         self.test_set_path = None
         self.state_path = None
         self.generator_done = False
-        self.tests = [] # Stores every test produced by the generator. Gets backed up to disk so we don't lose anything
-        self.backtests = [] # List of backtests returned from QC API
+        self.tests = []  # Stores every test produced by the generator. Gets backed up to disk so we don't lose anything
+        self.backtests = []  # List of backtests returned from QC API
         self.state_counter = Counter()
 
     def initialize(self):
@@ -43,7 +43,7 @@ class Coordinator:
         self.logger.debug(self.project)
 
         self.project_id = self.project["projectId"]
-        self.test_set_path = self.data_dir /  f"{project_name}-{self.project_id}" / self.test_set.name()
+        self.test_set_path = self.data_dir / f"{project_name}-{self.project_id}" / self.test_set.name()
         if not self.test_set_path.exists():
             self.test_set_path.mkdir(parents=True)
 
@@ -53,10 +53,10 @@ class Coordinator:
         self.load_state()
     
     def update_test_state_from_api(self):
-        '''TODO: What happens if the list of tests gets really big? Is there an upper bound on what QC will allow?
+        """TODO: What happens if the list of tests gets really big? Is there an upper bound on what QC will allow?
         We may end up needing to only maintain a window of most recent tests on QC with the rest of the state saved
         locally only.
-        '''
+        """
         if not self.tests:
             return
         list_backtests_resp = self.api.list_backtests(self.project_id)
@@ -130,9 +130,8 @@ class Coordinator:
 
             self.logger.debug("generating report")
             self.generate_csv_report()
-        except:
-            e = sys.exc_info()[0]
-            self.logger.error("Unhandled error", exc_info = e)
+        except Exception as exc:
+            self.logger.error("Unhandled error", exc_info=exc)
 
     def get_next_test(self, generator):
         test = next((t for t in self.tests if t.state == TestState.CREATED), None)
@@ -155,7 +154,7 @@ class Coordinator:
             return test
 
     def launch_test(self, test):
-        '''update parameters file, compile, and launch backtest'''
+        """update parameters file, compile, and launch backtest"""
         if not self.api.update_parameters_file(self.project_id, test.params):
             self.logger.error(f"{test.name} update_parameters_file failed")
             return
@@ -175,9 +174,9 @@ class Coordinator:
             self.logger.debug(f"{test.name} launched")
 
     def on_test_completed(self, test):
-        '''Download results for completed test and save them, also mark test state as completed.
+        """Download results for completed test and save them, also mark test state as completed.
         In future may pass this to test set to help it initialize generator state
-        '''
+        """
         results_path = self.get_results_path(test)
         if results_path.exists():
             test.state = TestState.COMPLETED
@@ -216,8 +215,8 @@ class Coordinator:
             raise
     
     def validate_backtest_results(self, results):
-        requiredKeys = ["alphaRuntimeStatistics", "runtimeStatistics", "rollingWindow", "statistics", "totalPerformance"]
-        return all((key in results and results[key]) for key in requiredKeys) # check key presence and value not null or []
+        required_keys = ["alphaRuntimeStatistics", "runtimeStatistics", "rollingWindow", "statistics", "totalPerformance"]
+        return all((key in results and results[key]) for key in required_keys)  # check key presence and value not null or []
 
     def get_results_path(self, test):
         return self.test_set_path / f"{test.name}.json"
@@ -229,29 +228,29 @@ class Coordinator:
         for test in self.tests:
             results = self.read_and_validate_backtest_results(test)
             if not results:
-                self.logger.warn(f"{test.name} invalid results, not including in report")
+                self.logger.warning(f"{test.name} invalid results, not including in report")
                 continue
             
             statistics = results["backtest"]["statistics"]
-            statistics["PROE"] = self.PROE(results["backtest"])
+            statistics["PROE"] = self.proe(results["backtest"])
             rows.append((test.name, copy.deepcopy(test.params), statistics))
         
         params_keys = functools.reduce(lambda s1, s2: s1 | s2, (set(r[1].keys()) for r in rows))
         results_keys = functools.reduce(lambda s1, s2: s1 | s2, (set(r[2].keys()) for r in rows))
         field_names = ["name"] + list(params_keys) + list(results_keys)
-        with report_path.open("w", newline="") as f: # https://stackoverflow.com/questions/3348460/csv-file-written-with-python-has-blank-lines-between-each-row
+        with report_path.open("w", newline="") as f:  # https://stackoverflow.com/questions/3348460/csv-file-written-with-python-has-blank-lines-between-each-row
             writer = csv.DictWriter(f, field_names)
             writer.writeheader()
             for r in rows:
                 d = dict([("name", r[0])] + list(r[1].items()) + list(r[2].items()))
                 writer.writerow(d)
 
-    def PROE(self, bt_results):
-        '''Pessimistic return on equity. Variant of PROM (Pessimistic Return on Margin) from Pardo's book "The Evaluation
-        and Optimization of Trading Strategies" (chp 9). Make gross profit more pessimistic by reducing number of winning
-        trades by square root and increasing number of losing trades by square root. This adjusted gross profit is then
-        used to compute an annualized return on initial account equity.
-        '''
+    def proe(self, bt_results):
+        """Pessimistic return on equity. Variant of PROM (Pessimistic Return on Margin) from Pardo's book "The
+        Evaluation and Optimization of Trading Strategies" (chp 9). Make gross profit more pessimistic by reducing
+        number of winning trades by square root and increasing number of losing trades by square root. This adjusted
+        gross profit is then used to compute an annualized return on initial account equity.
+        """
         rs = bt_results["runtimeStatistics"]
         final_equity = locale.atof(rs["Equity"].strip("$"))
         retrn = locale.atof(rs["Return"].strip("%")) / 100
@@ -267,13 +266,13 @@ class Coordinator:
         adj_total_return = adj_gross_profit / initial_equity
         bt_start = datetime.fromisoformat(bt_results["backtestStart"])
         bt_end = datetime.fromisoformat(bt_results["backtestEnd"])
-        bt_months = (bt_end.year - bt_start.year) * 12 + (bt_end.month - bt_start.month) # https://www.kite.com/python/answers/how-to-get-the-number-of-months-between-two-dates-in-python
-        adj_annualized_return = ((1 + adj_total_return)**(12/bt_months)) - 1 # https://s3.amazonaws.com/assets.datacamp.com/production/course_18408/slides/chapter2.pdf
+        bt_months = (bt_end.year - bt_start.year) * 12 + (bt_end.month - bt_start.month)  # https://www.kite.com/python/answers/how-to-get-the-number-of-months-between-two-dates-in-python
+        adj_annualized_return = ((1 + adj_total_return)**(12/bt_months)) - 1  # https://s3.amazonaws.com/assets.datacamp.com/production/course_18408/slides/chapter2.pdf
 
         return adj_annualized_return
 
     def load_state(self):
-        '''Load state from JSON file, if it exists. Restores state of this object and of test_set'''
+        """Load state from JSON file, if it exists. Restores state of this object and of test_set"""
         if self.state_path.exists():
             with self.state_path.open() as f:
                 state = json.load(f)
@@ -284,26 +283,27 @@ class Coordinator:
         tests = [test.to_dict() for test in self.tests]
         state = {
             "coordinator": {
-                "tests" : tests,
+                "tests": tests,
             },
-            "test_set": {} # TODO if test set is stateful can store it here
+            "test_set": {}  # TODO if test set is stateful can store it here
         }
         # We assume here that the serialized state is always growing, so there is no risk of writing
         # new file with fewer bytes than previous
         with self.state_path.open('w') as f:
             json.dump(state, f, indent=4)
 
+
 if __name__ == "__main__":
-    logging.basicConfig( # configures root logger, more succinct than wiring up handlers on object directly
+    logging.basicConfig(  # configures root logger, more succinct than wiring up handlers on object directly
         level=logging.DEBUG,
         format="%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s]  %(message)s",
         stream=sys.stdout
     )
-    logger = logging.getLogger() # root logger
+    logger = logging.getLogger()  # root logger
     # Framework parameters
     data_dir = Path("C:/Users/karth/Documents/Backtests")
-    with (data_dir / "config.json").open() as f:
-        config = json.load(f)
+    with (data_dir / "config.json").open() as cf:
+        config = json.load(cf)
     logger.info(str(config))
     try:
         mod = importlib.import_module(config["module"])
@@ -311,7 +311,6 @@ if __name__ == "__main__":
         api = RateLimitedApi(config["user_id"], config["token"], debug=False)
         coordinator = Coordinator(testset, api, config, data_dir)
         coordinator.run()
-    except:
-        e = sys.exc_info()[0]
-        logger.error("Unhandled error", exc_info = e)
+    except Exception as e:
+        logger.error("Unhandled error", exc_info=e)
         sys.exit(1)

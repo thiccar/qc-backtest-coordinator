@@ -9,13 +9,14 @@ logger = logging.getLogger(__name__)
 logging.getLogger("requests").setLevel(logging.WARNING)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
 
+
 class RateLimitedApi(Api):
-    def __init__(self, user_id, token, debug = False):
+    def __init__(self, user_id, token, debug=False):
         super().__init__(user_id, token, debug)
 
     @sleep_and_retry
-    @limits(calls=20, period=60) # 20 calls per minute
-    def Execute(self, endpoint, data = None, is_post = False, headers = {}):
+    @limits(calls=20, period=60)  # 20 calls per minute
+    def Execute(self, endpoint, data=None, is_post=False, headers={}):
         # TODO: Move failure logging in here?
         return super().Execute(endpoint, data, is_post, headers)
 
@@ -24,7 +25,7 @@ class RateLimitedApi(Api):
         return next((p for p in project_list["projects"] if p["name"] == name), None)
 
     def update_parameters_file(self, project_id, parameters):
-        '''returns True or False indicating success'''
+        """returns True or False indicating success"""
         parameters_json = json.dumps(parameters)
         # Get the file
         file_resp = self.read_project_file(project_id, "parameters.py")
@@ -33,9 +34,10 @@ class RateLimitedApi(Api):
             return False
 
         # Update the content
+        def update_line(line):
+            return line if line.find("_parametersJson =") < 0 else f"_parametersJson = '{parameters_json}'"
         file_content = file_resp["files"][0]["content"]
         lines = file_content.split("\n")
-        update_line = lambda line: line if line.find("_parametersJson =") < 0 else f"_parametersJson = '{parameters_json}'"
         new_lines = [update_line(line) for line in lines]
     
         # Save the new file to server
@@ -47,7 +49,7 @@ class RateLimitedApi(Api):
         return update_resp["success"]
     
     def compile(self, project_id, retries=5):
-        '''returns compile_id or None'''
+        """returns compile_id or None"""
         create_compile_resp = self.create_compile(project_id)
         attempt = 0
         while attempt < retries:

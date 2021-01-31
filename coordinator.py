@@ -236,8 +236,11 @@ class Coordinator:
             if not results:
                 self.logger.warning(f"{test.name} invalid results, not including in report")
                 continue
-            
-            statistics = results["backtest"]["statistics"]
+
+            bt_results = results["backtest"]
+            statistics = bt_results["statistics"]
+            for k in ["SortinoRatio", "ReturnOverMaxDrawdown"]:
+                statistics[k] = bt_results["alphaRuntimeStatistics"][k]
             statistics["PROE"] = self.proe(results["backtest"])
             rows.append((test.name, copy.deepcopy(test.params), statistics))
         

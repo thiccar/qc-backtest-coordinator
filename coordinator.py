@@ -45,7 +45,10 @@ class Coordinator:
         if not self.test_set_path.exists():
             self.test_set_path.mkdir(parents=True)
 
-        self.logger.addHandler(logging.FileHandler(self.test_set_path / "log.txt"))
+        root_logger = logging.getLogger()
+        file_hndlr = logging.FileHandler(self.test_set_path / "log.txt")
+        file_hndlr.setFormatter(root_logger.handlers[0].formatter)
+        root_logger.addHandler(file_hndlr)
         self.state_path = self.test_set_path / "state.json"
             
         self.load_state()

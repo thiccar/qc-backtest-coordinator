@@ -79,7 +79,8 @@ class Coordinator:
                     assert False
                 elif test.backtest_id != existing_bt["backtestId"]:
                     self.logger.error("Possible duplicate")
-                    self.logger.error(f"{test.name} backtest_id: {test.backtest_id} != QC backtestId: {existing_bt['backtestId']}")
+                    self.logger.error(f"{test.name} backtest_id: {test.backtest_id} != "
+                                      "QC backtestId: {existing_bt['backtestId']}")
                     assert False
                 elif existing_bt["completed"]:
                     self.on_test_completed(test)
@@ -96,7 +97,8 @@ class Coordinator:
                 self.update_test_state_from_api()
                 self.logger.info(f"generator_done={self.generator_done} len(tests)={len(self.tests)} " +
                                  f"len(backtests)={len(self.backtests)} state_counter={self.state_counter}")
-                if self.generator_done and self.state_counter[TestState.CREATED] == 0 and self.state_counter[TestState.RUNNING] == 0:
+                if (self.generator_done and self.state_counter[TestState.CREATED] == 0
+                        and self.state_counter[TestState.RUNNING] == 0):
                     break
 
                 limit = concurrency - self.state_counter[TestState.RUNNING]
@@ -184,7 +186,8 @@ class Coordinator:
             self.logger.debug(f"{test.name} completed, downloading results")
             read_backtest_resp = self.api.read_backtest(self.project_id, test.backtest_id)
             
-            # If read_backtest request fails, or downloaded results fail validation, don't do anything. We'll try again later.
+            # If read_backtest request fails, or downloaded results fail validation, don't do anything.
+            # We'll try again later.
             if read_backtest_resp["success"]:
                 results = read_backtest_resp["backtest"]
                 if self.validate_backtest_results(results):
@@ -213,8 +216,10 @@ class Coordinator:
             raise
     
     def validate_backtest_results(self, results):
-        required_keys = ["alphaRuntimeStatistics", "runtimeStatistics", "rollingWindow", "statistics", "totalPerformance"]
-        return all((key in results and results[key]) for key in required_keys)  # check key presence and value not null or []
+        required_keys = ["alphaRuntimeStatistics", "runtimeStatistics", "rollingWindow", "statistics",
+                         "totalPerformance"]
+        # check key presence and value not null or []
+        return all((key in results and results[key]) for key in required_keys)
 
     def get_results_path(self, test):
         return self.test_set_path / f"{test.name}.json"
@@ -236,7 +241,8 @@ class Coordinator:
         params_keys = functools.reduce(lambda s1, s2: s1 | s2, (set(r[1].keys()) for r in rows))
         results_keys = functools.reduce(lambda s1, s2: s1 | s2, (set(r[2].keys()) for r in rows))
         field_names = ["name"] + list(params_keys) + list(results_keys)
-        with report_path.open("w", newline="") as f:  # https://stackoverflow.com/questions/3348460/csv-file-written-with-python-has-blank-lines-between-each-row
+        # https://stackoverflow.com/questions/3348460/csv-file-written-with-python-has-blank-lines-between-each-row
+        with report_path.open("w", newline="") as f:
             writer = csv.DictWriter(f, field_names)
             writer.writeheader()
             for r in rows:
@@ -259,13 +265,16 @@ class Coordinator:
         num_losing = ts["NumberOfLosingTrades"]
         avg_win = float(ts["AverageProfit"])
         avg_loss = float(ts["AverageLoss"])
-        adj_gross_profit = avg_win * (num_winning - math.sqrt(num_winning)) + avg_loss * (num_losing + math.sqrt(num_losing))
+        adj_gross_profit = avg_win * (num_winning - math.sqrt(num_winning)) + avg_loss * (
+                    num_losing + math.sqrt(num_losing))
 
         adj_total_return = adj_gross_profit / initial_equity
         bt_start = datetime.fromisoformat(bt_results["backtestStart"])
         bt_end = datetime.fromisoformat(bt_results["backtestEnd"])
-        bt_months = (bt_end.year - bt_start.year) * 12 + (bt_end.month - bt_start.month)  # https://www.kite.com/python/answers/how-to-get-the-number-of-months-between-two-dates-in-python
-        adj_annualized_return = ((1 + adj_total_return)**(12/bt_months)) - 1  # https://s3.amazonaws.com/assets.datacamp.com/production/course_18408/slides/chapter2.pdf
+        # https://www.kite.com/python/answers/how-to-get-the-number-of-months-between-two-dates-in-python
+        bt_months = (bt_end.year - bt_start.year) * 12 + (bt_end.month - bt_start.month)
+        # https://s3.amazonaws.com/assets.datacamp.com/production/course_18408/slides/chapter2.pdf
+        adj_annualized_return = ((1 + adj_total_return) ** (12 / bt_months)) - 1
 
         return adj_annualized_return
 

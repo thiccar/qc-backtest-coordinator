@@ -3,7 +3,7 @@ import logging
 from ratelimit import limits, sleep_and_retry
 from time import sleep
 
-from quantconnect.api import *
+from quantconnect.api import Api
 
 logger = logging.getLogger(__name__)
 logging.getLogger("requests").setLevel(logging.WARNING)

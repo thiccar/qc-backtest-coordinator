@@ -1,6 +1,7 @@
 from abc import *
 import copy
 from datetime import date, timedelta
+from dateutil.relativedelta import relativedelta
 from enum import Enum
 
 import hashlib
@@ -128,8 +129,7 @@ class MultiPeriodInterval(MultiPeriod):
 class ParamSignificance:
     """Cycle one parameter at a time while keeping the rest at passed in defaults. So the total number of tests run
     (if using a single time range) will be the sum of the number of values in each parameter range"""
-    
-    # TODO: May want to allow running on multiple time ranges
+
     def __init__(self, periods: list, defaults: dict, param_ranges: dict):
         self.periods = periods
         self.defaults = defaults
@@ -166,11 +166,49 @@ class GridSearch:
 
     def tests(self):
         for (start, end) in self.periods:
-            grid = ParameterGrid(self.param_grid)
-            for params in grid:
-                if self.params_filter and self.params_filter(params):
+            for params in ParameterGrid(self.param_grid)
+                if not self.params_filter or self.params_filter(params):
                     params["start"] = start.isoformat()
                     params["end"] = end.isoformat()
                     name = Test.generate_name(f"{self.name()}", params)
                     test = Test(name, params)
                     yield test
+
+
+class WalkForwardAnalysis:
+    def __init__(self, start: date, end: date, opt_months: int, oos_months: int, param_grid: dict, params_filter=None):
+        self.start = start
+        self.end = end
+        self.opt_months = opt_months
+        self.oos_months = oos_months
+        self.param_grid = param_grid
+        self.params_filter = params_filter
+
+    def name(self):
+        return f"wfa_{self.start.isoformat()}_{self.end.isoformat()}_{self.opt_months}_{self.oos_months}"
+
+    def tests(self):
+        for ((opt_start, opt_end), (oos_start, oos_end)) in self.windows():
+            for params in ParameterGrid(self.param_grid):
+                if not self.params_filter or self.params_filter(params):
+                    params["start"] = opt_start.isoformat()
+                    params["end"] = opt_end.isoformat()
+                    name = Test.generate_name(f"{self.name()}", params)
+                    test = Test(name, params)
+                    yield test
+            # OMG HAVE TO REPORT BACK RESULTS
+
+    def windows(self):
+        w = []
+        opt_start = self.start
+        while True:
+            opt_end = opt_start + relativedelta(months=self.opt_months) - timedelta(1)
+            oos_start = opt_end + timedelta(1)
+            oos_end = oos_start + relativedelta(months=self.oos_months) - timedelta(1)
+
+            if oos_start >= self.end:
+                break
+
+            w.append(((opt_start, opt_end), (oos_start, oos_end)))
+            opt_start += relativedelta(months=self.oos_months)
+        return w

@@ -16,6 +16,60 @@ from testsets import Test, TestState
 locale.setlocale(locale.LC_ALL, 'en_US.UTF8')
 
 
+class CoordinatorIO:
+    required_keys = ["alphaRuntimeStatistics", "runtimeStatistics", "rollingWindow", "statistics", "totalPerformance"]
+
+    """Methods for reading and writing state files and test results"""
+    def __init__(self, test_set_path, mkdir=False):
+        self.test_set_path = test_set_path
+        if mkdir and not self.test_set_path.exists():
+            self.test_set_path.mkdir(parents=True)
+        self.state_path = self.test_set_path / "state.json"
+        self.report_path = self.test_set_path / "report.csv"
+        self.log_path = self.test_set_path / "log.txt"
+
+    def write_results(self, test, backtest_results):
+        results_path = self.get_results_path(test)
+        with results_path.open('w') as f:
+            gus = {"test": test.to_dict(), "backtest": backtest_results}
+            json.dump(gus, f, indent=4)
+
+    def read_and_validate_backtest_results(self, test):
+        results_path = self.get_results_path(test)
+        try:
+            if results_path.exists():
+                with results_path.open() as f:
+                    stored = json.load(f)
+                    if self.validate_backtest_results(stored["backtest"]):
+                        return stored
+            return None
+        except json.decoder.JSONDecodeError:
+            self.logger.error(f"{test.name} results json decode failed")
+            # TODO: Delete file so it will be re-downloaded?
+            raise
+
+    def validate_backtest_results(self, results):
+        # check key presence and value not null or []
+        return all((key in results and results[key]) for key in self.required_keys)
+
+    def get_results_path(self, test):
+        name = test.name if isinstance(test, Test) else test["name"]  # Support Test or dict
+        return self.test_set_path / f"{name}.json"
+
+    def read_state(self):
+        """Read state from JSON file, if it exists"""
+        if self.state_path.exists():
+            with self.state_path.open() as f:
+                return json.load(f)
+
+    def write_state(self, state):
+        """Serialize given object to JSON and write to state file"""
+        # We assume here that the serialized state is always growing, so there is no risk of writing
+        # new file with fewer bytes than previous
+        with self.state_path.open('w') as f:
+            json.dump(state, f, indent=4)
+
+
 class Coordinator:
     logger = logging.getLogger(__name__)
 
@@ -25,10 +79,9 @@ class Coordinator:
         self.config = config
         self.data_dir = data_dir
 
+        self.cio = None
         self.project = None
         self.project_id = None
-        self.test_set_path = None
-        self.state_path = None
         self.generator_done = False
         self.tests = []  # Stores every test produced by the generator. Gets backed up to disk so we don't lose anything
         self.backtests = []  # List of backtests returned from QC API
@@ -41,15 +94,12 @@ class Coordinator:
         self.logger.debug(self.project)
 
         self.project_id = self.project["projectId"]
-        self.test_set_path = self.data_dir / f"{project_name}-{self.project_id}" / self.test_set.name()
-        if not self.test_set_path.exists():
-            self.test_set_path.mkdir(parents=True)
+        self.cio = CoordinatorIO(self.data_dir / f"{project_name}-{self.project_id}" / self.test_set.name())
 
         root_logger = logging.getLogger()
-        file_hndlr = logging.FileHandler(self.test_set_path / "log.txt")
-        file_hndlr.setFormatter(root_logger.handlers[0].formatter)
-        root_logger.addHandler(file_hndlr)
-        self.state_path = self.test_set_path / "state.json"
+        file_handler = logging.FileHandler(self.cio.log_path)
+        file_handler.setFormatter(root_logger.handlers[0].formatter)
+        root_logger.addHandler(file_handler)
             
         self.load_state()
     
@@ -131,6 +181,7 @@ class Coordinator:
                     self.logger.info("Sleeping for 15 secs")
                     sleep(15)
 
+            self.save_state()
             self.logger.debug("generating report")
             self.generate_csv_report()
         except Exception as exc:
@@ -180,12 +231,12 @@ class Coordinator:
         """Download results for completed test and save them, also mark test state as completed.
         In future may pass this to test set to help it initialize generator state
         """
-        results_path = self.get_results_path(test)
-        if results_path.exists():
+        if self.cio.read_and_validate_backtest_results(test):
             test.state = TestState.COMPLETED
-            if not self.read_and_validate_backtest_results(test):
-                self.logger.error(f"{test.name} stored results fail validation, consider re-doing")
         else:
+            if self.cio.get_results_path(test).exists():
+                self.logger.error(f"{test.name} stored results fail validation") # should not happen
+
             self.logger.debug(f"{test.name} completed, downloading results")
             read_backtest_resp = self.api.read_backtest(self.project_id, test.backtest_id)
             
@@ -193,46 +244,17 @@ class Coordinator:
             # We'll try again later.
             if read_backtest_resp["success"]:
                 results = read_backtest_resp["backtest"]
-                if self.validate_backtest_results(results):
+                if self.cio.validate_backtest_results(results):
                     test.state = TestState.COMPLETED
-                    self.write_results(test, results)
+                    self.cio.write_results(test, results)
                 else:
                     self.logger.error(f"{test.name} api results fail validation, not storing")
-    
-    def write_results(self, test, backtest_results):
-        results_path = self.get_results_path(test)
-        with results_path.open('w') as f:
-            gus = {"test": test.to_dict(), "backtest": backtest_results}
-            json.dump(gus, f, indent=4)
-
-    def read_and_validate_backtest_results(self, test):
-        results_path = self.get_results_path(test)
-        try:
-            with results_path.open() as f:
-                stored = json.load(f)
-                if self.validate_backtest_results(stored["backtest"]):
-                    return stored
-                return None
-        except json.decoder.JSONDecodeError:
-            self.logger.error(f"{test.name} results json decode failed")
-            # TODO: Delete file so it will be re-downloaded?
-            raise
-    
-    def validate_backtest_results(self, results):
-        required_keys = ["alphaRuntimeStatistics", "runtimeStatistics", "rollingWindow", "statistics",
-                         "totalPerformance"]
-        # check key presence and value not null or []
-        return all((key in results and results[key]) for key in required_keys)
-
-    def get_results_path(self, test):
-        return self.test_set_path / f"{test.name}.json"
 
     # TODO maybe put this in a separate module
     def generate_csv_report(self):
-        report_path = self.test_set_path / "report.csv"
         rows = []
         for test in self.tests:
-            results = self.read_and_validate_backtest_results(test)
+            results = self.cio.read_and_validate_backtest_results(test)
             if not results:
                 self.logger.warning(f"{test.name} invalid results, not including in report")
                 continue
@@ -248,7 +270,7 @@ class Coordinator:
         results_keys = functools.reduce(lambda s1, s2: s1 | s2, (set(r[2].keys()) for r in rows))
         field_names = ["name"] + list(params_keys) + list(results_keys)
         # https://stackoverflow.com/questions/3348460/csv-file-written-with-python-has-blank-lines-between-each-row
-        with report_path.open("w", newline="") as f:
+        with self.cio.report_path.open("w", newline="") as f:
             writer = csv.DictWriter(f, field_names)
             writer.writeheader()
             for r in rows:
@@ -286,11 +308,10 @@ class Coordinator:
 
     def load_state(self):
         """Load state from JSON file, if it exists. Restores state of this object and of test_set"""
-        if self.state_path.exists():
-            with self.state_path.open() as f:
-                state = json.load(f)
-                tests = state["coordinator"]["tests"]
-                self.tests = [Test.from_dict(d) for d in tests]
+        state = self.cio.read_state()
+        if state:
+            tests = state["coordinator"]["tests"]
+            self.tests = [Test.from_dict(d) for d in tests]
 
     def save_state(self):
         tests = [test.to_dict() for test in self.tests]
@@ -300,7 +321,4 @@ class Coordinator:
             },
             "test_set": {}  # TODO if test set is stateful can store it here
         }
-        # We assume here that the serialized state is always growing, so there is no risk of writing
-        # new file with fewer bytes than previous
-        with self.state_path.open('w') as f:
-            json.dump(state, f, indent=4)
+        self.cio.write_state(state)

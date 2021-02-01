@@ -17,22 +17,18 @@ locale.setlocale(locale.LC_ALL, 'en_US.UTF8')
 
 
 class CoordinatorIO:
+    """Methods for reading and writing state files and test results"""
+
     required_keys = ["alphaRuntimeStatistics", "runtimeStatistics", "rollingWindow", "statistics", "totalPerformance"]
 
-    """Methods for reading and writing state files and test results"""
-    def __init__(self, test_set_path, mkdir=False):
+    def __init__(self, test_set_path, read_only=True, mkdir=False):
         self.test_set_path = test_set_path
-        if mkdir and not self.test_set_path.exists():
+        if not read_only and mkdir and not self.test_set_path.exists():
             self.test_set_path.mkdir(parents=True)
+        self.read_only = read_only
         self.state_path = self.test_set_path / "state.json"
         self.report_path = self.test_set_path / "report.csv"
         self.log_path = self.test_set_path / "log.txt"
-
-    def write_results(self, test, backtest_results):
-        results_path = self.get_results_path(test)
-        with results_path.open('w') as f:
-            gus = {"test": test.to_dict(), "backtest": backtest_results}
-            json.dump(gus, f, indent=4)
 
     def read_and_validate_backtest_results(self, test):
         results_path = self.get_results_path(test)
@@ -52,6 +48,13 @@ class CoordinatorIO:
         # check key presence and value not null or []
         return all((key in results and results[key]) for key in self.required_keys)
 
+    def write_results(self, test, backtest_results):
+        assert not self.read_only
+        results_path = self.get_results_path(test)
+        with results_path.open('w') as f:
+            gus = {"test": test.to_dict(), "backtest": backtest_results}
+            json.dump(gus, f, indent=4)
+
     def get_results_path(self, test):
         name = test.name if isinstance(test, Test) else test["name"]  # Support Test or dict
         return self.test_set_path / f"{name}.json"
@@ -64,6 +67,7 @@ class CoordinatorIO:
 
     def write_state(self, state):
         """Serialize given object to JSON and write to state file"""
+        assert not self.read_only
         # We assume here that the serialized state is always growing, so there is no risk of writing
         # new file with fewer bytes than previous
         with self.state_path.open('w') as f:

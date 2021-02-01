@@ -191,10 +191,10 @@ class WalkForwardSingle(TestSet):
     """
     logger = logging.getLogger(__name__)
 
-    def __init__(self, start: date, opt_months: int, oos_months: int, param_grid: dict,
+    def __init__(self, opt_start: date, opt_months: int, oos_months: int, param_grid: dict,
                  objective_fn, params_filter=None):
         """Assumption is that objective_fn produces higher scores for better results"""
-        self.opt_start = start
+        self.opt_start = opt_start
         self.opt_months = opt_months
         self.oos_months = oos_months
         self.opt_end = self.opt_start + relativedelta(months=self.opt_months) - timedelta(1)
@@ -246,7 +246,7 @@ class WalkForwardSingle(TestSet):
         return Test(name, params)
 
 
-class WalkForwardAnalysis(TestSet):
+class WalkForwardMultiple(TestSet):
     def __init__(self, start: date, end: date, opt_months: int, oos_months: int, param_grid: dict,
                  objective_fn, params_filter=None):
         self.start = start
@@ -257,38 +257,31 @@ class WalkForwardAnalysis(TestSet):
         self.objective_fn = objective_fn
         self.params_filter = params_filter
 
-        self.opt_test_results = []
-        self.oos_test = None
+        self.walk_forwards = self.sub_tests()
 
     def name(self):
         return f"wfa_{self.start.isoformat()}_{self.end.isoformat()}_{self.opt_months}_{self.oos_months}"
 
     def tests(self):
-        for ((opt_start, opt_end), (oos_start, oos_end)) in self.windows():
-            for params in ParameterGrid(self.param_grid):
-                if not self.params_filter or self.params_filter(params):
-                    params["start"] = opt_start.isoformat()
-                    params["end"] = opt_end.isoformat()
-                    name = Test.generate_name(f"{self.name()}", params)
-                    test = Test(name, params)
-                    yield test
-            # OMG HAVE TO REPORT BACK RESULTS
+        for wf in self.walk_forwards:
+            for test in wf.tests():
+                yield test
 
-    def windows(self):
-        w = []
+    def sub_tests(self):
+        sub = []
         opt_start = self.start
-        while True:
-            opt_end = opt_start + relativedelta(months=self.opt_months) - timedelta(1)
-            oos_start = opt_end + timedelta(1)
-            oos_end = oos_start + relativedelta(months=self.oos_months) - timedelta(1)
+        while opt_start + relativedelta(months=self.opt_months + self.oos_months) <= self.end:
+            t = WalkForwardSingle(opt_start, self.opt_months, self.oos_months, self.param_grid, self.objective_fn, self.params_filter)
+            sub.append(t)
 
-            if oos_start >= self.end:
-                break
-
-            w.append(((opt_start, opt_end), (oos_start, oos_end)))
             opt_start += relativedelta(months=self.oos_months)
-        return w
+
+        return sub
 
     def on_test_completed(self, results):
-        pass
+        for wf in self.walk_forwards:
+            start = results.test.params["start"]
+            if start == wf.opt_start.isoformat() or start == wf.oos_start.isoformat():
+                wf.on_test_completed(results)
+                break
 

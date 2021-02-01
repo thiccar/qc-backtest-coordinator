@@ -98,7 +98,8 @@ class Coordinator:
         self.logger.debug(self.project)
 
         self.project_id = self.project["projectId"]
-        self.cio = CoordinatorIO(self.data_dir / f"{project_name}-{self.project_id}" / self.test_set.name())
+        self.cio = CoordinatorIO(self.data_dir / f"{project_name}-{self.project_id}" / self.test_set.name(),
+                                 read_only=False, mkdir=True)
 
         root_logger = logging.getLogger()
         file_handler = logging.FileHandler(self.cio.log_path)

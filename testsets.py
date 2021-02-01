@@ -3,12 +3,12 @@ import copy
 from datetime import date, timedelta
 from dateutil.relativedelta import relativedelta
 from enum import Enum
-
 import hashlib
 import json
+import random
+
 import coolname
 import coolname.data
-import random
 from sklearn.model_selection import ParameterGrid
 
 
@@ -188,17 +188,20 @@ class WalkForward(TestSet):
     the best parameter set according to the ranking provided by the objective function, and then running that
     parameter set over the OOS period
     """
-    def __init__(self, start: date, opt_months: int, oos_months: int, param_grid: dict,objective_fn, params_filter=None):
+    def __init__(self, start: date, opt_months: int, oos_months: int, param_grid: dict,
+                 objective_fn, params_filter=None):
+        """Assumption is that objective_fn produces higher scores for better results"""
         self.opt_start = start
+        self.opt_end = self.opt_start + relativedelta(months=self.opt_months) - timedelta(1)
+        self.oos_start = self.opt_end + timedelta(1)
+        self.oos_end = self.oos_start + relativedelta(months=self.oos_months) - timedelta(1)
         self.opt_months = opt_months
         self.oos_months = oos_months
         self.param_grid = param_grid
         self.objective_fn = objective_fn
         self.params_filter = params_filter
 
-        self.opt_end = self.opt_start + relativedelta(months=self.opt_months) - timedelta(1)
-        self.oos_start = self.opt_end + timedelta(1)
-        self.oos_end = self.oos_start + relativedelta(months=self.oos_months) - timedelta(1)
+        self.opt_test_cnt = 0
         self.opt_test_results = []
         self.oos_test = None
 
@@ -213,10 +216,25 @@ class WalkForward(TestSet):
                 params["end"] = self.opt_end.isoformat()
                 name = Test.generate_name(f"{self.name()}", params)
                 test = Test(name, params)
+                self.opt_test_cnt += 1
                 yield test
+            # Until we get all test results back, no-op
+            if len(self.opt_test_results) < self.opt_test_cnt:
+                yield TestSet.NO_OP
+            elif not self.oos_test: # Don't want to keep returning the oos test
+                self.oos_test = self.generate_oos_test()
+                yield self.oos_test
 
     def on_test_completed(self, results):
-        pass
+        if not self.oos_test:
+            self.opt_test_results.append(results)
+
+    def generate_oos_test(self):
+        best = max(self.opt_test_results, key=self.objective_fn)
+        params = copy.deepcopy(best.test.params)
+        params["start"] = self.oos_start
+        params["end"] = self.oos_end
+        return Test(Test.generate_name(self.name(), params))
 
 
 class WalkForwardAnalysis(TestSet):

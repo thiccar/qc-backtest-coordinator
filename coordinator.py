@@ -11,7 +11,7 @@ from pathlib import Path
 from time import sleep
 
 from api.ratelimitedapi import RateLimitedApi
-from testsets import Test, TestSet, TestState
+from testsets import Test, TestResults, TestSet, TestState
 
 locale.setlocale(locale.LC_ALL, 'en_US.UTF8')
 
@@ -19,6 +19,7 @@ locale.setlocale(locale.LC_ALL, 'en_US.UTF8')
 class CoordinatorIO:
     """Methods for reading and writing state files and test results"""
 
+    logger = logging.getLogger(__name__)
     required_keys = ["alphaRuntimeStatistics", "runtimeStatistics", "rollingWindow", "statistics", "totalPerformance"]
 
     def __init__(self, test_set_path, read_only=True, mkdir=False):
@@ -30,30 +31,44 @@ class CoordinatorIO:
         self.report_path = self.test_set_path / "report.csv"
         self.log_path = self.test_set_path / "log.txt"
 
-    def read_and_validate_backtest_results(self, test):
+    def read_and_validate_results(self, test) -> TestResults:
         results_path = self.get_results_path(test)
         try:
             if results_path.exists():
                 with results_path.open() as f:
                     stored = json.load(f)
                     if self.validate_backtest_results(stored["backtest"]):
-                        return stored
+                        results = TestResults.from_dict(stored)
+                        if not self.validate_backtest_consistency(test, results):
+                            self.logger.error(f"Inconsistency test and results: {test} {results.test}")
+                        results.test = test  # Re-use the passed in object
+                        return results
+                    else:
+                        self.logger.error(f"{test.name} stored results fail validation")
             return None
         except json.decoder.JSONDecodeError:
             self.logger.error(f"{test.name} results json decode failed")
             # TODO: Delete file so it will be re-downloaded?
             raise
 
-    def validate_backtest_results(self, results):
+    @classmethod
+    def validate_backtest_results(cls, results):
         # check key presence and value not null or []
-        return all((key in results and results[key]) for key in self.required_keys)
+        return all((key in results and results[key]) for key in cls.required_keys)
 
-    def write_results(self, test, backtest_results):
+    @classmethod
+    def validate_backtest_consistency(cls, test: Test, results: TestResults):
+        return test.to_dict() == results.test.to_dict()
+
+    def validate_and_write_results(self, results: TestResults) -> bool:
         assert not self.read_only
-        results_path = self.get_results_path(test)
-        with results_path.open('w') as f:
-            gus = {"test": test.to_dict(), "backtest": backtest_results}
-            json.dump(gus, f, indent=4)
+        if self.validate_backtest_results(results.bt_results):
+            results_path = self.get_results_path(results.test)
+            with results_path.open('w') as f:
+                json.dump(results.to_dict(), f, indent=4)
+            return True
+        else:
+            return False
 
     def get_results_path(self, test):
         name = test.name if isinstance(test, Test) else test["name"]  # Support Test or dict
@@ -168,6 +183,9 @@ class Coordinator:
                         self.logger.debug("generator done")
                         self.generator_done = True
                         break
+                    if test == TestSet.NO_OP:
+                        self.logger.debug("no-op test")
+                        break
 
                     # Somehow a backtest was launched for the test, despite the test not being in our internal state.
                     # Reuse the backtest
@@ -236,42 +254,38 @@ class Coordinator:
         """Download results for completed test and save them, also mark test state as completed.
         In future may pass this to test set to help it initialize generator state
         """
-        results = self.cio.read_and_validate_backtest_results(test)
+        results = self.cio.read_and_validate_results(test)
         if not results:
-            if self.cio.get_results_path(test).exists():
-                self.logger.error(f"{test.name} stored results fail validation") # should not happen
-
             self.logger.debug(f"{test.name} completed, downloading results")
             read_backtest_resp = self.api.read_backtest(self.project_id, test.backtest_id)
             
             # If read_backtest request fails, or downloaded results fail validation, don't do anything.
             # We'll try again later.
             if read_backtest_resp["success"]:
-                results = read_backtest_resp["backtest"]
-                if self.cio.validate_backtest_results(results):
+                results = TestResults(test, read_backtest_resp["backtest"])
+                if self.cio.validate_and_write_results(results):
                     test.state = TestState.COMPLETED
-                    self.cio.write_results(test, results)
                 else:
+                    results = None
                     self.logger.error(f"{test.name} api results fail validation, not storing")
 
         if results:
             test.state = TestState.COMPLETED
-            self.test_set.on_test_complete(test, results)
+            self.test_set.on_test_completed(results)
 
     # TODO maybe put this in a separate module
     def generate_csv_report(self):
         rows = []
         for test in self.tests:
-            results = self.cio.read_and_validate_backtest_results(test)
+            results = self.cio.read_and_validate_results(test)
             if not results:
                 self.logger.warning(f"{test.name} invalid results, not including in report")
                 continue
 
-            bt_results = results["backtest"]
-            statistics = bt_results["statistics"]
+            statistics = results.bt_results["statistics"]
             for k in ["SortinoRatio", "ReturnOverMaxDrawdown"]:
-                statistics[k] = bt_results["alphaRuntimeStatistics"][k]
-            statistics["PROE"] = self.proe(results["backtest"])
+                statistics[k] = results.bt_results["alphaRuntimeStatistics"][k]
+            statistics["PROE"] = self.proe(results.bt_results)
             rows.append((test.name, copy.deepcopy(test.params), statistics))
         
         params_keys = functools.reduce(lambda s1, s2: s1 | s2, (set(r[1].keys()) for r in rows))
@@ -285,7 +299,7 @@ class Coordinator:
                 d = dict([("name", r[0])] + list(r[1].items()) + list(r[2].items()))
                 writer.writerow(d)
 
-    def proe(self, bt_results):
+    def proe(self, bt_results: dict):
         """Pessimistic return on equity. Variant of PROM (Pessimistic Return on Margin) from Pardo's book "The
         Evaluation and Optimization of Trading Strategies" (chp 9). Make gross profit more pessimistic by reducing
         number of winning trades by square root and increasing number of losing trades by square root. This adjusted

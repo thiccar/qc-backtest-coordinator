@@ -62,7 +62,22 @@ class Test:
         return f"{prefix}_{cool_name}"
 
 
+class TestResults:
+    def __init__(self, test: Test, bt_results: dict):
+        self.test = test
+        self.bt_results = bt_results
+
+    def to_dict(self) -> dict:
+        return {"test": self.test.to_dict(), "backtest": self.bt_results}
+
+    @staticmethod
+    def from_dict(d: dict):
+        return TestResults(Test.from_dict(d["test"]), d["backtest"])
+
+
 class TestSet(ABC):
+    NO_OP = Test("no-op", {})  # Returned when don't have a new test yet, but are not done generating tests.
+
     @abstractmethod
     def name(self):
         pass
@@ -71,7 +86,7 @@ class TestSet(ABC):
     def tests(self):
         pass
     
-    def on_test_complete(self, test, results):
+    def on_test_completed(self, results: TestResults):
         pass
 
 
@@ -168,14 +183,55 @@ class GridSearch(TestSet):
                     yield test
 
 
+class WalkForward(TestSet):
+    """Executes a single "walk forward" step, performing a grid search over the optimization period, selecting
+    the best parameter set according to the ranking provided by the objective function, and then running that
+    parameter set over the OOS period
+    """
+    def __init__(self, start: date, opt_months: int, oos_months: int, param_grid: dict,objective_fn, params_filter=None):
+        self.opt_start = start
+        self.opt_months = opt_months
+        self.oos_months = oos_months
+        self.param_grid = param_grid
+        self.objective_fn = objective_fn
+        self.params_filter = params_filter
+
+        self.opt_end = self.opt_start + relativedelta(months=self.opt_months) - timedelta(1)
+        self.oos_start = self.opt_end + timedelta(1)
+        self.oos_end = self.oos_start + relativedelta(months=self.oos_months) - timedelta(1)
+        self.opt_test_results = []
+        self.oos_test = None
+
+    def name(self):
+        return f"wf_{self.opt_months}_{self.oos_months}_{self.opt_start}_{self.oos_end}"
+
+    def tests(self):
+        for params in ParameterGrid(self.param_grid):
+            # First we execute all the tests for the optimization window
+            if not self.params_filter or self.params_filter(params):
+                params["start"] = self.start.isoformat()
+                params["end"] = self.opt_end.isoformat()
+                name = Test.generate_name(f"{self.name()}", params)
+                test = Test(name, params)
+                yield test
+
+    def on_test_completed(self, results):
+        pass
+
+
 class WalkForwardAnalysis(TestSet):
-    def __init__(self, start: date, end: date, opt_months: int, oos_months: int, param_grid: dict, params_filter=None):
+    def __init__(self, start: date, end: date, opt_months: int, oos_months: int, param_grid: dict,
+                 objective_fn, params_filter=None):
         self.start = start
         self.end = end
         self.opt_months = opt_months
         self.oos_months = oos_months
         self.param_grid = param_grid
+        self.objective_fn = objective_fn
         self.params_filter = params_filter
+
+        self.opt_test_results = []
+        self.oos_test = None
 
     def name(self):
         return f"wfa_{self.start.isoformat()}_{self.end.isoformat()}_{self.opt_months}_{self.oos_months}"
@@ -205,3 +261,7 @@ class WalkForwardAnalysis(TestSet):
             w.append(((opt_start, opt_end), (oos_start, oos_end)))
             opt_start += relativedelta(months=self.oos_months)
         return w
+
+    def on_test_completed(self, results):
+        pass
+

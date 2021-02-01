@@ -148,7 +148,7 @@ class Coordinator:
     def run(self):
         self.initialize()
         concurrency = self.config["concurrency"]
-        test_generator = self.test_set.permutations()
+        test_generator = self.test_set.tests()
         try:
             while True:
                 self.update_test_state_from_api()

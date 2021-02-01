@@ -73,7 +73,7 @@ class TestSet(ABC):
     
     # TODO: Rename to tests?
     @abstractmethod
-    def permutations(self):
+    def tests(self):
         pass
     
     @abstractmethod
@@ -92,7 +92,7 @@ class MultiPeriod:
         end = self.periods[-1][1]
         return f"mp_{start.isoformat()}_{end.isoformat()}"
 
-    def permutations(self):
+    def tests(self):
         """Return a generator that yields Test objects"""
         for (start, end) in self.periods:
             params = copy.deepcopy(self.params)
@@ -140,7 +140,7 @@ class ParamSignificance:
         end = self.periods[-1][1]
         return f"ps_{start.isoformat()}_{end.isoformat()}"
 
-    def permutations(self):
+    def tests(self):
         for (start, end) in self.periods:
             for (key, param_range) in self.param_ranges.items():
                 for value in param_range:
@@ -164,7 +164,7 @@ class GridSearch:
         end = self.periods[-1][1]
         return f"gs_{start.isoformat()}_{end.isoformat()}"
 
-    def permutations(self):
+    def tests(self):
         for (start, end) in self.periods:
             grid = ParameterGrid(self.param_grid)
             for params in grid:

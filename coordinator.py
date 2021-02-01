@@ -11,7 +11,7 @@ from pathlib import Path
 from time import sleep
 
 from api.ratelimitedapi import RateLimitedApi
-from testsets import Test, TestState
+from testsets import Test, TestSet, TestState
 
 locale.setlocale(locale.LC_ALL, 'en_US.UTF8')
 
@@ -77,7 +77,7 @@ class CoordinatorIO:
 class Coordinator:
     logger = logging.getLogger(__name__)
 
-    def __init__(self, test_set, api: RateLimitedApi, config: dict, data_dir: Path):
+    def __init__(self, test_set: TestSet, api: RateLimitedApi, config: dict, data_dir: Path):
         self.test_set = test_set
         self.api = api
         self.config = config
@@ -236,9 +236,8 @@ class Coordinator:
         """Download results for completed test and save them, also mark test state as completed.
         In future may pass this to test set to help it initialize generator state
         """
-        if self.cio.read_and_validate_backtest_results(test):
-            test.state = TestState.COMPLETED
-        else:
+        results = self.cio.read_and_validate_backtest_results(test)
+        if not results:
             if self.cio.get_results_path(test).exists():
                 self.logger.error(f"{test.name} stored results fail validation") # should not happen
 
@@ -254,6 +253,10 @@ class Coordinator:
                     self.cio.write_results(test, results)
                 else:
                     self.logger.error(f"{test.name} api results fail validation, not storing")
+
+        if results:
+            test.state = TestState.COMPLETED
+            self.test_set.on_test_complete(test, results)
 
     # TODO maybe put this in a separate module
     def generate_csv_report(self):

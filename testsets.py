@@ -62,27 +62,20 @@ class Test:
         return f"{prefix}_{cool_name}"
 
 
-# TODO: Flesh out abstract class once have multiple generator types
-# TODO: Maybe a method that exposes if it is a fixed size
 class TestSet(ABC):
-    """Can have a module per algorithm researched, with different implementations of this for different stages
-    May eventually want to feed backtest results back into here, if it will dynamically influence test
-    generation. If we get to that point, we'll want to see what's already implemented in modules out there"""
     @abstractmethod
     def name(self):
         pass
     
-    # TODO: Rename to tests?
     @abstractmethod
     def tests(self):
         pass
     
-    @abstractmethod
-    def report(self, results):
+    def on_test_complete(self, test, results):
         pass
 
 
-class MultiPeriod:
+class MultiPeriod(TestSet):
     """Exercise the algorithm with a constant set of parameters over a range of time periods"""
     def __init__(self, periods: list, params: dict):
         self.periods = periods
@@ -126,7 +119,7 @@ class MultiPeriodInterval(MultiPeriod):
         super().__init__(periods, params)
 
 
-class ParamSignificance:
+class ParamSignificance(TestSet):
     """Cycle one parameter at a time while keeping the rest at passed in defaults. So the total number of tests run
     (if using a single time range) will be the sum of the number of values in each parameter range"""
 
@@ -153,7 +146,7 @@ class ParamSignificance:
                     yield test
 
 
-class GridSearch:
+class GridSearch(TestSet):
     def __init__(self, periods: list, param_grid: dict, params_filter=None):
         self.periods = periods
         self.param_grid = param_grid
@@ -166,7 +159,7 @@ class GridSearch:
 
     def tests(self):
         for (start, end) in self.periods:
-            for params in ParameterGrid(self.param_grid)
+            for params in ParameterGrid(self.param_grid):
                 if not self.params_filter or self.params_filter(params):
                     params["start"] = start.isoformat()
                     params["end"] = end.isoformat()
@@ -175,7 +168,7 @@ class GridSearch:
                     yield test
 
 
-class WalkForwardAnalysis:
+class WalkForwardAnalysis(TestSet):
     def __init__(self, start: date, end: date, opt_months: int, oos_months: int, param_grid: dict, params_filter=None):
         self.start = start
         self.end = end

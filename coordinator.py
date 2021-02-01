@@ -40,7 +40,7 @@ class CoordinatorIO:
                     if self.validate_backtest_results(stored["backtest"]):
                         results = TestResults.from_dict(stored)
                         if not self.validate_backtest_consistency(test, results):
-                            self.logger.error(f"Inconsistency test and results: {test} {results.test}")
+                            self.logger.error(f"Inconsistent test & results: {test.to_dict()} {results.test.to_dict()}")
                         results.test = test  # Re-use the passed in object
                         return results
                     else:
@@ -63,6 +63,7 @@ class CoordinatorIO:
     def validate_and_write_results(self, results: TestResults) -> bool:
         assert not self.read_only
         if self.validate_backtest_results(results.bt_results):
+            results.test.state = TestState.COMPLETED
             results_path = self.get_results_path(results.test)
             with results_path.open('w') as f:
                 json.dump(results.to_dict(), f, indent=4)
@@ -128,8 +129,6 @@ class Coordinator:
         We may end up needing to only maintain a window of most recent tests on QC with the rest of the state saved
         locally only.
         """
-        if not self.tests:
-            return
         list_backtests_resp = self.api.list_backtests(self.project_id)
         assert list_backtests_resp["success"]
         self.backtests = list_backtests_resp["backtests"]
@@ -187,11 +186,10 @@ class Coordinator:
                         self.logger.debug("no-op test")
                         break
 
-                    # Somehow a backtest was launched for the test, despite the test not being in our internal state.
-                    # Reuse the backtest
+                    # Reuse existing backtest
                     existing_bt = next((bt for bt in self.backtests if bt["name"] == test.name), None)
                     if existing_bt:
-                        self.logger.warning(f"{test.name} was previously launched but not recorded")
+                        self.logger.info(f"{test.name} was previously launched")
                         test.backtest_id = existing_bt["backtestId"]
                         test.state = TestState.RUNNING
                     else:
@@ -217,18 +215,17 @@ class Coordinator:
             return test
         
         test = next(generator, None)
-        if not test:
-            return None
+        if not test or test == TestSet.NO_OP:
+            return test
 
         # Tests have deterministic naming, so the generator may have emitted this test previously
         existing_test = next((t for t in self.tests if t.name == test.name), None)
         if existing_test:
-            self.logger.warning(f"{test.name} is a duplicate")
-            return self.get_next_test(generator)
+            self.logger.info(f"{test.name} is a duplicate")
         else:
-            self.logger.debug(f"New generated test {test.name}")
+            self.logger.info(f"New generated test {test.name}")
             self.tests.append(test)
-            return test
+        return test
 
     def launch_test(self, test):
         """update parameters file, compile, and launch backtest"""
@@ -254,7 +251,7 @@ class Coordinator:
         """Download results for completed test and save them, also mark test state as completed.
         In future may pass this to test set to help it initialize generator state
         """
-        results = self.cio.read_and_validate_results(test)
+        results = self.cio.read_and_validate_results(test)  # See if already stored results locally
         if not results:
             self.logger.debug(f"{test.name} completed, downloading results")
             read_backtest_resp = self.api.read_backtest(self.project_id, test.backtest_id)
@@ -263,9 +260,7 @@ class Coordinator:
             # We'll try again later.
             if read_backtest_resp["success"]:
                 results = TestResults(test, read_backtest_resp["backtest"])
-                if self.cio.validate_and_write_results(results):
-                    test.state = TestState.COMPLETED
-                else:
+                if not self.cio.validate_and_write_results(results):
                     results = None
                     self.logger.error(f"{test.name} api results fail validation, not storing")
 

@@ -5,6 +5,7 @@ from dateutil.relativedelta import relativedelta
 from enum import Enum
 import hashlib
 import json
+import logging
 import random
 
 import coolname
@@ -183,58 +184,66 @@ class GridSearch(TestSet):
                     yield test
 
 
-class WalkForward(TestSet):
+class WalkForwardSingle(TestSet):
     """Executes a single "walk forward" step, performing a grid search over the optimization period, selecting
     the best parameter set according to the ranking provided by the objective function, and then running that
     parameter set over the OOS period
     """
+    logger = logging.getLogger(__name__)
+
     def __init__(self, start: date, opt_months: int, oos_months: int, param_grid: dict,
                  objective_fn, params_filter=None):
         """Assumption is that objective_fn produces higher scores for better results"""
         self.opt_start = start
+        self.opt_months = opt_months
+        self.oos_months = oos_months
         self.opt_end = self.opt_start + relativedelta(months=self.opt_months) - timedelta(1)
         self.oos_start = self.opt_end + timedelta(1)
         self.oos_end = self.oos_start + relativedelta(months=self.oos_months) - timedelta(1)
-        self.opt_months = opt_months
-        self.oos_months = oos_months
+
         self.param_grid = param_grid
         self.objective_fn = objective_fn
         self.params_filter = params_filter
 
-        self.opt_test_cnt = 0
-        self.opt_test_results = []
+        self.opt_tests = []
         self.oos_test = None
 
     def name(self):
         return f"wf_{self.opt_months}_{self.oos_months}_{self.opt_start}_{self.oos_end}"
 
     def tests(self):
+        # First we execute all the optimization tests
         for params in ParameterGrid(self.param_grid):
-            # First we execute all the tests for the optimization window
-            if not self.params_filter or self.params_filter(params):
-                params["start"] = self.start.isoformat()
-                params["end"] = self.opt_end.isoformat()
-                name = Test.generate_name(f"{self.name()}", params)
-                test = Test(name, params)
-                self.opt_test_cnt += 1
-                yield test
-            # Until we get all test results back, no-op
-            if len(self.opt_test_results) < self.opt_test_cnt:
-                yield TestSet.NO_OP
-            elif not self.oos_test: # Don't want to keep returning the oos test
-                self.oos_test = self.generate_oos_test()
-                yield self.oos_test
+            if self.params_filter and not self.params_filter(params):
+                continue
+            params["start"] = self.opt_start.isoformat()
+            params["end"] = self.opt_end.isoformat()
+            name = Test.generate_name(f"wf_{self.opt_months}_{self.oos_months}_opt_{self.opt_start}_{self.oos_end}", params)
+            test = Test(name, params)
+            self.opt_tests.append((test, None))
+            yield test
+
+        # Until we get all test results back, no-op
+        while any(not r for (t, r) in self.opt_tests):
+            yield TestSet.NO_OP
+
+        if not self.oos_test:  # Don't want to keep returning the oos test
+            self.oos_test = self.generate_oos_test()
+            self.logger.info(f"Finished optimization, beginning OOS with best param set: {self.oos_test.to_dict()}")
+            yield self.oos_test
 
     def on_test_completed(self, results):
-        if not self.oos_test:
-            self.opt_test_results.append(results)
+        for (i, (t, r)) in enumerate(self.opt_tests):
+            if not r and t == results.test or t.params == results.test.params:
+                self.opt_tests[i] = (t, results)
 
     def generate_oos_test(self):
-        best = max(self.opt_test_results, key=self.objective_fn)
+        best = max((r for (t, r) in self.opt_tests), key=self.objective_fn)
         params = copy.deepcopy(best.test.params)
-        params["start"] = self.oos_start
-        params["end"] = self.oos_end
-        return Test(Test.generate_name(self.name(), params))
+        params["start"] = self.oos_start.isoformat()
+        params["end"] = self.oos_end.isoformat()
+        name = Test.generate_name(f"wf_{self.opt_months}_{self.oos_months}_oos_{self.opt_start}_{self.oos_end}", params)
+        return Test(name, params)
 
 
 class WalkForwardAnalysis(TestSet):

@@ -1,7 +1,7 @@
 from collections import Counter
 import copy
 import csv
-from datetime import datetime
+from datetime import datetime, timedelta
 import functools
 import json
 import locale
@@ -103,6 +103,7 @@ class Coordinator:
         self.project = None
         self.project_id = None
         self.generator_done = False
+        self.generated_cnt = 0
         self.tests = []  # Stores every test produced by the generator. Gets backed up to disk so we don't lose anything
         self.backtests = []  # List of backtests returned from QC API
         self.state_counter = Counter()
@@ -111,7 +112,7 @@ class Coordinator:
         project_name = self.config["project_name"]
         self.project = self.api.get_project_by_name(project_name)
         assert self.project is not None
-        self.logger.debug(self.project)
+        self.logger.info(self.project)
 
         self.project_id = self.project["projectId"]
         self.cio = CoordinatorIO(self.data_dir / f"{project_name}-{self.project_id}" / self.test_set.name(),
@@ -124,7 +125,7 @@ class Coordinator:
             
         self.load_state()
     
-    def update_test_state_from_api(self):
+    def update_tests_state_from_api(self):
         """TODO: What happens if the list of tests gets really big? Is there an upper bound on what QC will allow?
         We may end up needing to only maintain a window of most recent tests on QC with the rest of the state saved
         locally only.
@@ -132,33 +133,42 @@ class Coordinator:
         list_backtests_resp = self.api.list_backtests(self.project_id)
         assert list_backtests_resp["success"]
         self.backtests = list_backtests_resp["backtests"]
+        self.update_tests_state()
 
+    def update_tests_state(self):
         self.state_counter.clear()
         for test in self.tests:
-            existing_bt = next((bt for bt in self.backtests if bt["name"] == test.name), None)
-            if existing_bt is None:
-                if test.state != TestState.CREATED:
-                    self.logger.warning(f"Inconsistent state, thought {test.name} was launched, was not")
-                test.state = TestState.CREATED
+            self.update_test_state(test)
+            self.state_counter[test.state] += 1
+
+    def update_test_state(self, test):
+        existing_bt = next((bt for bt in self.backtests if bt["name"] == test.name), None)
+        if existing_bt is None:
+            if test.state != TestState.CREATED:
+                self.logger.warning(f"Inconsistent state, thought {test.name} was launched, was not")
+            test.state = TestState.CREATED
+        else:
+            # Handle error and inconsistent state cases
+            if existing_bt["status"] == "Runtime Error":
+                # Assuming that if there was a runtime error, there are bugs in the backtest code that need to be
+                # fixed.  This may necessitate re-running all the backtests.  Maybe if needed can be an option to
+                # delete all the backtests (or erroneous backtests) for a test set during initialization.
+                self.logger.error("Test runtime error")
+                self.logger.error(test.to_dict())
+                self.logger.error(existing_bt["error"])
+                assert False
+            elif test.backtest_id and test.backtest_id != existing_bt["backtestId"]:
+                self.logger.error("Possible duplicate")
+                self.logger.error(f"{test.name} backtest_id: {test.backtest_id} != "
+                                  "QC backtestId: {existing_bt['backtestId']}")
+                assert False
             else:
-                if existing_bt["status"] == "Runtime Error":
-                    # Assuming that if there was a runtime error, there are bugs in the backtest code that need to be
-                    # fixed.  This may necessitate re-running all the backtests.  Maybe if needed can be an option to
-                    # delete all the backtests (or erroneous backtests) for a test set during initialization.
-                    self.logger.error("Test runtime error")
-                    self.logger.error(test.to_dict())
-                    self.logger.error(existing_bt["error"])
-                    assert False
-                elif test.backtest_id != existing_bt["backtestId"]:
-                    self.logger.error("Possible duplicate")
-                    self.logger.error(f"{test.name} backtest_id: {test.backtest_id} != "
-                                      "QC backtestId: {existing_bt['backtestId']}")
-                    assert False
-                elif existing_bt["completed"]:
+                test.backtest_id = existing_bt["backtestId"]
+                if existing_bt["completed"]:
+                    test.state = TestState.COMPLETED
                     self.on_test_completed(test)
                 else:
                     test.state = TestState.RUNNING
-            self.state_counter[test.state] += 1
 
     def run(self):
         self.initialize()
@@ -166,8 +176,9 @@ class Coordinator:
         test_generator = self.test_set.tests()
         try:
             while True:
-                self.update_test_state_from_api()
-                self.logger.info(f"generator_done={self.generator_done} len(tests)={len(self.tests)} " +
+                self.update_tests_state_from_api()
+                self.logger.info(f"generator_done={self.generator_done} generated_cnt={self.generated_cnt} "
+                                 f"len(tests)={len(self.tests)} "
                                  f"len(backtests)={len(self.backtests)} state_counter={self.state_counter}")
                 if (self.generator_done and self.state_counter[TestState.CREATED] == 0
                         and self.state_counter[TestState.RUNNING] == 0):
@@ -179,31 +190,28 @@ class Coordinator:
                 while launched < limit:
                     test = self.get_next_test(test_generator)
                     if test is None:
-                        self.logger.debug("generator done")
+                        self.logger.info("generator done")
                         self.generator_done = True
                         break
                     if test == TestSet.NO_OP:
-                        self.logger.debug("no-op test")
+                        self.logger.info("no-op test")
                         break
 
-                    # Reuse existing backtest
-                    existing_bt = next((bt for bt in self.backtests if bt["name"] == test.name), None)
-                    if existing_bt:
+                    self.update_test_state(test)
+                    if test.state != TestState.CREATED:
                         self.logger.info(f"{test.name} was previously launched")
-                        test.backtest_id = existing_bt["backtestId"]
-                        test.state = TestState.RUNNING
                     else:
                         self.launch_test(test)
                         launched += 1
                         
                     self.save_state()
                 
-                if launched > 0 or self.state_counter[TestState.RUNNING] > 0:
+                if launched > 0 or self.state_counter[TestState.RUNNING] > 0 or test == TestSet.NO_OP:
                     self.logger.info("Sleeping for 15 secs")
                     sleep(15)
 
             self.save_state()
-            self.logger.debug("generating report")
+            self.logger.info("generating report")
             self.generate_csv_report()
         except Exception as exc:
             self.logger.error("Unhandled error", exc_info=exc)
@@ -211,13 +219,14 @@ class Coordinator:
     def get_next_test(self, generator):
         test = next((t for t in self.tests if t.state == TestState.CREATED), None)
         if test:
-            self.logger.debug(f"Returning queued test {test.name}")
+            self.logger.info(f"Returning queued test {test.name}")
             return test
         
         test = next(generator, None)
         if not test or test == TestSet.NO_OP:
             return test
 
+        self.generated_cnt += 1
         # Tests have deterministic naming, so the generator may have emitted this test previously
         existing_test = next((t for t in self.tests if t.name == test.name), None)
         if existing_test:
@@ -240,20 +249,23 @@ class Coordinator:
         
         create_backtest_resp = self.api.create_backtest(self.project_id, compile_id, test.name)
         if not create_backtest_resp["success"]:
+
             self.logger.error(f"{test.name} create_backtest failed")
             self.logger.error(create_backtest_resp)
         else:
             test.backtest_id = create_backtest_resp["backtest"]["backtestId"]
             test.state = TestState.RUNNING
-            self.logger.debug(f"{test.name} launched")
+            self.logger.info(f"{test.name} launched")
 
     def on_test_completed(self, test):
         """Download results for completed test and save them, also mark test state as completed.
         In future may pass this to test set to help it initialize generator state
         """
         results = self.cio.read_and_validate_results(test)  # See if already stored results locally
-        if not results:
-            self.logger.debug(f"{test.name} completed, downloading results")
+        if results:
+            self.logger.debug(f"{test.name} completed and results already downloaded")
+        else:
+            self.logger.info(f"{test.name} completed, downloading results")
             read_backtest_resp = self.api.read_backtest(self.project_id, test.backtest_id)
             
             # If read_backtest request fails, or downloaded results fail validation, don't do anything.
@@ -265,7 +277,6 @@ class Coordinator:
                     self.logger.error(f"{test.name} api results fail validation, not storing")
 
         if results:
-            test.state = TestState.COMPLETED
             self.test_set.on_test_completed(results)
 
     # TODO maybe put this in a separate module
@@ -280,7 +291,7 @@ class Coordinator:
             statistics = results.bt_results["statistics"]
             for k in ["SortinoRatio", "ReturnOverMaxDrawdown"]:
                 statistics[k] = results.bt_results["alphaRuntimeStatistics"][k]
-            statistics["PROE"] = self.proe(results.bt_results)
+            statistics["PROE"] = self.proe(results)
             rows.append((test.name, copy.deepcopy(test.params), statistics))
         
         params_keys = functools.reduce(lambda s1, s2: s1 | s2, (set(r[1].keys()) for r in rows))
@@ -294,18 +305,19 @@ class Coordinator:
                 d = dict([("name", r[0])] + list(r[1].items()) + list(r[2].items()))
                 writer.writerow(d)
 
-    def proe(self, bt_results: dict):
-        """Pessimistic return on equity. Variant of PROM (Pessimistic Return on Margin) from Pardo's book "The
+    def proe(self, results: TestResults):
+        """Pessimistic return on
+        equity. Variant of PROM (Pessimistic Return on Margin) from Pardo's book "The
         Evaluation and Optimization of Trading Strategies" (chp 9). Make gross profit more pessimistic by reducing
         number of winning trades by square root and increasing number of losing trades by square root. This adjusted
         gross profit is then used to compute an annualized return on initial account equity.
         """
-        rs = bt_results["runtimeStatistics"]
+        rs = results.bt_results["runtimeStatistics"]
         final_equity = locale.atof(rs["Equity"].strip("$"))
         retrn = locale.atof(rs["Return"].strip("%")) / 100
         initial_equity = final_equity / (1 + retrn)
         
-        ts = bt_results["totalPerformance"]["TradeStatistics"]
+        ts = results.bt_results["totalPerformance"]["TradeStatistics"]
         num_winning = ts["NumberOfWinningTrades"]
         num_losing = ts["NumberOfLosingTrades"]
         avg_win = float(ts["AverageProfit"])
@@ -314,12 +326,10 @@ class Coordinator:
                     num_losing + math.sqrt(num_losing))
 
         adj_total_return = adj_gross_profit / initial_equity
-        bt_start = datetime.fromisoformat(bt_results["backtestStart"])
-        bt_end = datetime.fromisoformat(bt_results["backtestEnd"])
-        # https://www.kite.com/python/answers/how-to-get-the-number-of-months-between-two-dates-in-python
-        bt_months = (bt_end.year - bt_start.year) * 12 + (bt_end.month - bt_start.month)
-        # https://s3.amazonaws.com/assets.datacamp.com/production/course_18408/slides/chapter2.pdf
-        adj_annualized_return = ((1 + adj_total_return) ** (12 / bt_months)) - 1
+        bt_start = datetime.fromisoformat(results.test.params["start"])
+        bt_end = datetime.fromisoformat(results.test.params["end"])
+        bt_years = (bt_end - bt_start) / timedelta(365)
+        adj_annualized_return = ((1 + adj_total_return) ** (1 / bt_years)) - 1
 
         return adj_annualized_return
 

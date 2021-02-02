@@ -191,6 +191,7 @@ class WalkForwardSingle(TestSet):
     """
     logger = logging.getLogger(__name__)
 
+    # TODO: Consider using relativedelta here
     def __init__(self, opt_start: date, opt_months: int, oos_months: int, param_grid: dict,
                  objective_fn, params_filter=None):
         """Assumption is that objective_fn produces higher scores for better results"""
@@ -218,14 +219,17 @@ class WalkForwardSingle(TestSet):
                 continue
             params["start"] = self.opt_start.isoformat()
             params["end"] = self.opt_end.isoformat()
-            name = Test.generate_name(f"wf_{self.opt_months}_{self.oos_months}_opt_{self.opt_start}_{self.oos_end}", params)
+            name = Test.generate_name(f"wf_{self.opt_months}_{self.oos_months}_opt_{self.opt_start}_{self.opt_end}", params)
             test = Test(name, params)
             self.opt_tests.append((test, None))
             yield test
 
         # Until we get all test results back, no-op
-        while any(not r for (t, r) in self.opt_tests):
-            yield TestSet.NO_OP
+        while True:
+            if all(r is not None for (t, r) in self.opt_tests):
+                break
+            else:
+                yield TestSet.NO_OP
 
         if not self.oos_test:  # Don't want to keep returning the oos test
             self.oos_test = self.generate_oos_test()
@@ -242,13 +246,17 @@ class WalkForwardSingle(TestSet):
         params = copy.deepcopy(best.test.params)
         params["start"] = self.oos_start.isoformat()
         params["end"] = self.oos_end.isoformat()
-        name = Test.generate_name(f"wf_{self.opt_months}_{self.oos_months}_oos_{self.opt_start}_{self.oos_end}", params)
+        name = Test.generate_name(f"wf_{self.opt_months}_{self.oos_months}_oos_{self.oos_start}_{self.oos_end}", params)
         return Test(name, params)
 
 
 class WalkForwardMultiple(TestSet):
+    logger = logging.getLogger(__name__)
+
+    # TODO: Consider using relativedelta here
     def __init__(self, start: date, end: date, opt_months: int, oos_months: int, param_grid: dict,
                  objective_fn, params_filter=None):
+        assert opt_months != oos_months, "Use different (ideally higher) optimization window from oos window"
         self.start = start
         self.end = end
         self.opt_months = opt_months
@@ -260,19 +268,22 @@ class WalkForwardMultiple(TestSet):
         self.walk_forwards = self.sub_tests()
 
     def name(self):
-        return f"wfa_{self.start.isoformat()}_{self.end.isoformat()}_{self.opt_months}_{self.oos_months}"
+        return f"wf_{self.opt_months}_{self.oos_months}_{self.start.isoformat()}_{self.end.isoformat()}"
 
     def tests(self):
         for wf in self.walk_forwards:
             for test in wf.tests():
                 yield test
+            self.logger.info(f"Finished all tests for walk forward opt={wf.opt_start} - {wf.opt_end}"
+                             f" oos={wf.oos_start} - {wf.oos_end}")
 
     def sub_tests(self):
         sub = []
         opt_start = self.start
-        while opt_start + relativedelta(months=self.opt_months + self.oos_months) <= self.end:
-            t = WalkForwardSingle(opt_start, self.opt_months, self.oos_months, self.param_grid, self.objective_fn, self.params_filter)
-            sub.append(t)
+        while opt_start + relativedelta(months=self.opt_months + self.oos_months) - timedelta(1) <= self.end:
+            wfs = WalkForwardSingle(opt_start, self.opt_months, self.oos_months, self.param_grid,
+                                  self.objective_fn, self.params_filter)
+            sub.append(wfs)
 
             opt_start += relativedelta(months=self.oos_months)
 
@@ -281,7 +292,12 @@ class WalkForwardMultiple(TestSet):
     def on_test_completed(self, results):
         for wf in self.walk_forwards:
             start = results.test.params["start"]
-            if start == wf.opt_start.isoformat() or start == wf.oos_start.isoformat():
+            end = results.test.params["end"]
+            # Implicit assumption here is that opt window size and oos window size are different (one of the reasons
+            # for the assert statement in constructor).
+            if ((start == wf.opt_start.isoformat() and end == wf.opt_end.isoformat())
+                    or (start == wf.oos_start.isoformat() and end == wf.oos_end.isoformat())):
                 wf.on_test_completed(results)
-                break
+                return
 
+        self.logger.error(f"No matching walk forward step found for completed test {results.test.to_dict()}")

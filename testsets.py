@@ -2,12 +2,15 @@ from abc import *
 import copy
 from datetime import date, datetime, timedelta
 from dateutil.relativedelta import relativedelta
+from decimal import Decimal
 from enum import Enum
 import hashlib
 import json
 import logging
+import math
 import random
 
+from babel.numbers import parse_decimal
 import coolname
 import coolname.data
 from sklearn.model_selection import ParameterGrid
@@ -79,6 +82,10 @@ class TestResults:
     def __init__(self, test: Test, bt_results: dict):
         self.test = test
         self.bt_results = bt_results
+        self.runtime_statistics = bt_results["runtimeStatistics"]
+        self.statistics = bt_results["statistics"]
+        self.alpha_runtime_statistics = bt_results["alphaRuntimeStatistics"]
+        self.trade_statistics = bt_results["totalPerformance"]["TradeStatistics"]
 
     def to_dict(self) -> dict:
         return {"test": self.test.to_dict(), "backtest": self.bt_results}
@@ -86,6 +93,81 @@ class TestResults:
     @staticmethod
     def from_dict(d: dict):
         return TestResults(Test.from_dict(d["test"]), d["backtest"])
+
+    """
+    Utility methods for accessing result fields
+    """
+    def duration(self):
+        return self.test.end - self.test.start
+
+    def final_equity(self):
+        return self.parse_dollars(self.runtime_statistics["Equity"])
+
+    def total_trades(self):
+        return int(self.statistics["Total Trades"])
+
+    def winning_trades(self):
+        return int(self.trade_statistics["NumberOfWinningTrades"])
+
+    def losing_trades(self):
+        return int(self.trade_statistics["NumberOfLosingTrades"])
+
+    def avg_win(self):
+        return Decimal(self.trade_statistics["AverageProfit"])
+
+    def avg_loss(self):
+        return Decimal(self.trade_statistics["AverageLoss"])
+
+    def net_profit(self):
+        return self.parse_dollars(self.runtime_statistics["Net Profit"])
+
+    def annualized_net_profit(self):
+        return self.net_profit() * Decimal(timedelta(365) / self.duration())
+
+    def drawdown(self):
+        return self.parse_percent(self.statistics["Drawdown"])
+
+    def annualized_return_over_max_drawdown(self):
+        return Decimal(self.alpha_runtime_statistics["ReturnOverMaxDrawdown"])
+
+    def win_rate(self):
+        return self.parse_percent(self.statistics["Win Rate"])
+
+    def compounding_annual_return(self):
+        return self.parse_percent(self.statistics["Compounding Annual Return"])
+
+    def total_return(self):
+        return self.parse_percent(self.runtime_statistics["Return"])
+
+    def sortino_ratio(self):
+        return Decimal(self.alpha_runtime_statistics["SortinoRatio"])
+
+    def proe(self):
+        """Pessimistic return on equity. Variant of PROM (Pessimistic Return on Margin) from Pardo's book "The
+        Evaluation and Optimization of Trading Strategies" (chp 9). Make gross profit more pessimistic by reducing
+        number of winning trades by square root and increasing number of losing trades by square root. This adjusted
+        gross profit is then used to compute an annualized return on initial account equity.
+        """
+        initial_equity = self.final_equity() / (1 + self.total_return())
+
+        adj_gain = self.avg_win() * Decimal(self.winning_trades() - math.sqrt(self.winning_trades()))
+        adj_loss = self.avg_loss() * Decimal(self.losing_trades() + math.sqrt(self.losing_trades()))
+
+        adj_total_return = (adj_gain + adj_loss) / initial_equity
+        bt_years = (self.test.end - self.test.start) / timedelta(365)
+        adj_annualized_return = ((1 + adj_total_return) ** Decimal(1 / bt_years)) - 1
+
+        return adj_annualized_return
+
+    @classmethod
+    def parse_dollars(cls, s: str) -> Decimal:
+        assert s.startswith("$")
+        return parse_decimal(s.strip("$"), locale='en_US')
+
+    @classmethod
+    def parse_percent(cls, s: str) -> Decimal:
+        assert s.endswith("%")
+        return parse_decimal(s.strip("%"), locale='en_US') / 100
 
 
 class TestSet(ABC):

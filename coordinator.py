@@ -4,7 +4,6 @@ import csv
 from datetime import datetime, timedelta
 import functools
 import json
-import locale
 import logging
 import math
 from pathlib import Path
@@ -12,8 +11,6 @@ from time import sleep
 
 from api.ratelimitedapi import RateLimitedApi
 from testsets import Test, TestResults, TestSet, TestState
-
-locale.setlocale(locale.LC_ALL, 'en_US.UTF8')
 
 
 class CoordinatorIO:
@@ -291,7 +288,7 @@ class Coordinator:
             statistics = results.bt_results["statistics"]
             for k in ["SortinoRatio", "ReturnOverMaxDrawdown"]:
                 statistics[k] = results.bt_results["alphaRuntimeStatistics"][k]
-            statistics["PROE"] = self.proe(results)
+            statistics["PROE"] = results.proe()
             rows.append((test, statistics))
         
         params_keys = functools.reduce(lambda s1, s2: s1 | s2,
@@ -307,32 +304,6 @@ class Coordinator:
                          (list(t.params.items()) if isinstance(t.params, dict) else []) +
                          list(s.items()))
                 writer.writerow(d)
-
-    def proe(self, results: TestResults):
-        """Pessimistic return on
-        equity. Variant of PROM (Pessimistic Return on Margin) from Pardo's book "The
-        Evaluation and Optimization of Trading Strategies" (chp 9). Make gross profit more pessimistic by reducing
-        number of winning trades by square root and increasing number of losing trades by square root. This adjusted
-        gross profit is then used to compute an annualized return on initial account equity.
-        """
-        rs = results.bt_results["runtimeStatistics"]
-        final_equity = locale.atof(rs["Equity"].strip("$"))
-        retrn = locale.atof(rs["Return"].strip("%")) / 100
-        initial_equity = final_equity / (1 + retrn)
-        
-        ts = results.bt_results["totalPerformance"]["TradeStatistics"]
-        num_winning = ts["NumberOfWinningTrades"]
-        num_losing = ts["NumberOfLosingTrades"]
-        avg_win = float(ts["AverageProfit"])
-        avg_loss = float(ts["AverageLoss"])
-        adj_gross_profit = avg_win * (num_winning - math.sqrt(num_winning)) + avg_loss * (
-                    num_losing + math.sqrt(num_losing))
-
-        adj_total_return = adj_gross_profit / initial_equity
-        bt_years = (results.test.end - results.test.start) / timedelta(365)
-        adj_annualized_return = ((1 + adj_total_return) ** (1 / bt_years)) - 1
-
-        return adj_annualized_return
 
     def load_state(self):
         """Load state from JSON file, if it exists. Restores state of this object and of test_set"""

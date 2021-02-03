@@ -292,17 +292,20 @@ class Coordinator:
             for k in ["SortinoRatio", "ReturnOverMaxDrawdown"]:
                 statistics[k] = results.bt_results["alphaRuntimeStatistics"][k]
             statistics["PROE"] = self.proe(results)
-            rows.append((test.name, copy.deepcopy(test.params), statistics))
+            rows.append((test, statistics))
         
-        params_keys = functools.reduce(lambda s1, s2: s1 | s2, (set(r[1].keys()) for r in rows))
-        results_keys = functools.reduce(lambda s1, s2: s1 | s2, (set(r[2].keys()) for r in rows))
+        params_keys = functools.reduce(lambda s1, s2: s1 | s2,
+                                       (set(t.params.keys()) for (t, _) in rows if isinstance(t.params, dict)))
+        results_keys = functools.reduce(lambda s1, s2: s1 | s2, (set(s.keys()) for (_, s) in rows))
         field_names = ["name"] + list(params_keys) + list(results_keys)
         # https://stackoverflow.com/questions/3348460/csv-file-written-with-python-has-blank-lines-between-each-row
         with self.cio.report_path.open("w", newline="") as f:
             writer = csv.DictWriter(f, field_names)
             writer.writeheader()
-            for r in rows:
-                d = dict([("name", r[0])] + list(r[1].items()) + list(r[2].items()))
+            for (t, s) in rows:
+                d = dict([("name", t.name)] +
+                         (list(t.params.items()) if isinstance(t.params, dict) else []) +
+                         list(s.items()))
                 writer.writerow(d)
 
     def proe(self, results: TestResults):
@@ -326,9 +329,7 @@ class Coordinator:
                     num_losing + math.sqrt(num_losing))
 
         adj_total_return = adj_gross_profit / initial_equity
-        bt_start = datetime.fromisoformat(results.test.params["start"])
-        bt_end = datetime.fromisoformat(results.test.params["end"])
-        bt_years = (bt_end - bt_start) / timedelta(365)
+        bt_years = (results.test.end - results.test.start) / timedelta(365)
         adj_annualized_return = ((1 + adj_total_return) ** (1 / bt_years)) - 1
 
         return adj_annualized_return

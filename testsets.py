@@ -1,6 +1,6 @@
 from abc import *
 import copy
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from dateutil.relativedelta import relativedelta
 from enum import Enum
 import hashlib
@@ -44,13 +44,25 @@ class Test:
     """Utility class for grouping together various pieces of information about a test."""
     def __init__(self, name: str, params, backtest_id=None, state=TestState.CREATED):
         self.name = name
+
+        # Use datetime here to be more general, however most of the test sets work with dates
+        if isinstance(params, dict):
+            self.start = datetime.fromisoformat(params["start"])
+            self.end = datetime.fromisoformat(params["end"])
+        elif isinstance(params, list):
+            assert all(isinstance(p, dict) for p in params)
+            assert all("start" in p for p in params)
+            assert all("end" in p for p in params)
+            self.start = datetime.fromisoformat(params[0]["start"])
+            self.end = datetime.fromisoformat(params[-1]["end"])
+
         self.params = params
         self.backtest_id = backtest_id
         self.state = state
     
     def to_dict(self) -> dict:
         return {"name": self.name, "params": self.params, "backtest_id": self.backtest_id, "state": self.state.name}
-    
+
     @staticmethod
     def from_dict(d: dict):
         return Test(d["name"], d["params"], d["backtest_id"], TestState(d["state"]))
@@ -77,7 +89,7 @@ class TestResults:
 
 
 class TestSet(ABC):
-    NO_OP = Test("no-op", {})  # Returned when don't have a new test yet, but are not done generating tests.
+    NO_OP = Test("no-op", None)  # Returned when don't have a new test yet, but are not done generating tests.
 
     @abstractmethod
     def name(self):
@@ -302,14 +314,12 @@ class WalkForwardMultiple(TestSet):
         return sub
 
     def on_test_completed(self, results):
+        if self.oos_test and (results.test == self.oos_test or results.test.params == self.oos_test.params):
+            return
         for wf in self.walk_forwards:
-            start = results.test.params["start"]
-            end = results.test.params["end"]
             # Implicit assumption here is that opt window size and oos window size are different (one of the reasons
             # for the assert statement in constructor).
-            if ((start == wf.opt_start.isoformat() and end == wf.opt_end.isoformat())
-                    or (start == wf.oos_start.isoformat() and end == wf.oos_end.isoformat())):
+            if ((results.test.start.date() == wf.opt_start and results.test.end.date() == wf.opt_end)
+                    or (results.test.start.date() == wf.oos_start and results.test.end.date() == wf.oos_end)):
                 wf.on_test_completed(results)
                 return
-
-        self.logger.error(f"No matching walk forward step found for completed test {results.test.to_dict()}")

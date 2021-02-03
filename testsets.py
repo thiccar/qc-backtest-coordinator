@@ -42,7 +42,7 @@ USA_EQ_SIDEWAYS_MARKETS = [
 
 class Test:
     """Utility class for grouping together various pieces of information about a test."""
-    def __init__(self, name: str, params: dict, backtest_id=None, state=TestState.CREATED):
+    def __init__(self, name: str, params, backtest_id=None, state=TestState.CREATED):
         self.name = name
         self.params = params
         self.backtest_id = backtest_id
@@ -266,6 +266,7 @@ class WalkForwardMultiple(TestSet):
         self.params_filter = params_filter
 
         self.walk_forwards = self.sub_tests()
+        self.oos_test = None
 
     def name(self):
         return f"wf_{self.opt_months}_{self.oos_months}_{self.start.isoformat()}_{self.end.isoformat()}"
@@ -276,6 +277,17 @@ class WalkForwardMultiple(TestSet):
                 yield test
             self.logger.info(f"Finished all tests for walk forward opt={wf.opt_start} - {wf.opt_end}"
                              f" oos={wf.oos_start} - {wf.oos_end}")
+
+        self.logger.info("Launching combined oos backtest")
+        self.oos_test = self.generate_oos_test()
+        yield self.oos_test
+
+    def generate_oos_test(self):
+        params_list = [wf.oos_test.params for wf in self.walk_forwards]
+        start = params_list[0]["start"]
+        end = params_list[-1]["end"]
+        name = Test.generate_name(f"wf_{self.opt_months}_{self.oos_months}_oos_{self.start}_{self.end}", params_list)
+        return Test(name, params_list)
 
     def sub_tests(self):
         sub = []

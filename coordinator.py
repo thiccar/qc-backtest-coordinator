@@ -160,7 +160,7 @@ class Coordinator:
             elif test.backtest_id and test.backtest_id != existing_bt["backtestId"]:
                 self.logger.error("Possible duplicate")
                 self.logger.error(f"{test.name} backtest_id: {test.backtest_id} != "
-                                  "QC backtestId: {existing_bt['backtestId']}")
+                                  f"QC backtestId: {existing_bt['backtestId']}")
                 assert False
             else:
                 test.backtest_id = existing_bt["backtestId"]

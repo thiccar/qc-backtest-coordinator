@@ -24,35 +24,35 @@ class CoordinatorIO:
         self.report_path = self.test_set_path / "report.csv"
         self.log_path = self.test_set_path / "log.txt"
 
-    def read_test_results(self, test) -> TestResult:
-        results_path = self.get_results_path(test)
+    def read_test_result(self, test) -> TestResult:
+        result_path = self.get_test_result_path(test)
         try:
-            if results_path.exists():
-                with results_path.open() as f:
+            if result_path.exists():
+                with result_path.open() as f:
                     stored = json.load(f)
-                    results = TestResult.from_dict(stored)
-                    if not self.validate_backtest_consistency(test, results):
-                        self.logger.error(f"Inconsistent test & results: {test.to_dict()} {results.test.to_dict()}")
-                    results.test = test  # Re-use the passed in object
-                    return results
+                    result = TestResult.from_dict(stored)
+                    if not self.validate_backtest_consistency(test, result):
+                        self.logger.error(f"Inconsistent test & result: {test.to_dict()} {result.test.to_dict()}")
+                    result.test = test  # Re-use the passed in object
+                    return result
             return None
         except json.decoder.JSONDecodeError:
-            self.logger.error(f"{test.name} results json decode failed")
+            self.logger.error(f"{test.name} result json decode failed")
             # TODO: Delete file so it will be re-downloaded?
             raise
 
     @classmethod
-    def validate_backtest_consistency(cls, test: Test, results: TestResult):
-        return test.to_dict() == results.test.to_dict()
+    def validate_backtest_consistency(cls, test: Test, result: TestResult):
+        return test.to_dict() == result.test.to_dict()
 
-    def write_test_results(self, results: TestResult):
+    def write_test_result(self, result: TestResult):
         assert not self.read_only
-        results.test.state = TestState.COMPLETED
-        results_path = self.get_results_path(results.test)
-        with results_path.open('w') as f:
-            json.dump(results.to_dict(), f, indent=4)
+        result.test.state = TestState.COMPLETED
+        result_path = self.get_test_result_path(result.test)
+        with result_path.open('w') as f:
+            json.dump(result.to_dict(), f, indent=4)
 
-    def get_results_path(self, test):
+    def get_test_result_path(self, test):
         name = test.name if isinstance(test, Test) else test["name"]  # Support Test or dict
         return self.test_set_path / f"{name}.json"
 
@@ -239,46 +239,46 @@ class Coordinator:
             self.logger.info(f"{test.name} launched")
 
     def on_test_completed(self, test):
-        """Download results for completed test and save them, also mark test state as completed.
+        """Download result for completed test and save them, also mark test state as completed.
         In future may pass this to test set to help it initialize generator state
         """
         try:
             # TODO: This will read all the local files on every loop, can probably add a check to only do it once
-            results = self.cio.read_test_results(test)  # See if already stored results locally
-            if results:
-                self.logger.debug(f"{test.name} completed and results already downloaded")
+            result = self.cio.read_test_result(test)  # See if already stored result locally
+            if result:
+                self.logger.debug(f"{test.name} completed and result already downloaded")
             else:
-                self.logger.info(f"{test.name} completed, downloading results")
+                self.logger.info(f"{test.name} completed, downloading result")
                 read_backtest_resp = self.api.read_backtest(self.project_id, test.backtest_id)
 
-                # If read_backtest request fails, or downloaded results fail validation, don't do anything.
+                # If read_backtest request fails, or downloaded result fail validation, don't do anything.
                 # We'll try again later.
                 if read_backtest_resp["success"]:
-                    results = TestResult(test, read_backtest_resp["backtest"])
-                    self.cio.write_test_results(results)
+                    result = TestResult(test, read_backtest_resp["backtest"])
+                    self.cio.write_test_result(result)
         except TestResultValidationException:
-            self.logger.error(f"{test.name} api results fail validation")
-            results = None
+            self.logger.error(f"{test.name} api result fail validation")
+            result = None
 
-        if results:
-            self.test_set.on_test_completed(results)
+        if result:
+            self.test_set.on_test_completed(result)
 
     # TODO maybe put this in a separate module
     def generate_csv_report(self):
         rows = []
         for test in self.tests:
-            results = self.cio.read_test_results(test)
+            result = self.cio.read_test_result(test)
 
-            statistics = results.bt_results["statistics"]
+            statistics = result.bt_result["statistics"]
             for k in ["SortinoRatio", "ReturnOverMaxDrawdown"]:
-                statistics[k] = results.bt_results["alphaRuntimeStatistics"][k]
-            statistics["PROE"] = results.proe()
+                statistics[k] = result.bt_result["alphaRuntimeStatistics"][k]
+            statistics["PROE"] = result.proe()
             rows.append((test, statistics))
         
         params_keys = functools.reduce(lambda s1, s2: s1 | s2,
                                        (set(t.params.keys()) for (t, _) in rows if isinstance(t.params, dict)))
-        results_keys = functools.reduce(lambda s1, s2: s1 | s2, (set(s.keys()) for (_, s) in rows))
-        field_names = ["name"] + list(params_keys) + list(results_keys)
+        result_keys = functools.reduce(lambda s1, s2: s1 | s2, (set(s.keys()) for (_, s) in rows))
+        field_names = ["name"] + list(params_keys) + list(result_keys)
         # https://stackoverflow.com/questions/3348460/csv-file-written-with-python-has-blank-lines-between-each-row
         with self.cio.report_path.open("w", newline="") as f:
             writer = csv.DictWriter(f, field_names)

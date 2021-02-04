@@ -7,7 +7,7 @@ from pathlib import Path
 from time import sleep
 
 from api.ratelimitedapi import RateLimitedApi
-from testsets import Test, TestResults, TestResultValidationException, TestSet, TestState
+from testsets import Test, TestResult, TestResultValidationException, TestSet, TestState
 
 
 class CoordinatorIO:
@@ -24,13 +24,13 @@ class CoordinatorIO:
         self.report_path = self.test_set_path / "report.csv"
         self.log_path = self.test_set_path / "log.txt"
 
-    def read_test_results(self, test) -> TestResults:
+    def read_test_results(self, test) -> TestResult:
         results_path = self.get_results_path(test)
         try:
             if results_path.exists():
                 with results_path.open() as f:
                     stored = json.load(f)
-                    results = TestResults.from_dict(stored)
+                    results = TestResult.from_dict(stored)
                     if not self.validate_backtest_consistency(test, results):
                         self.logger.error(f"Inconsistent test & results: {test.to_dict()} {results.test.to_dict()}")
                     results.test = test  # Re-use the passed in object
@@ -42,10 +42,10 @@ class CoordinatorIO:
             raise
 
     @classmethod
-    def validate_backtest_consistency(cls, test: Test, results: TestResults):
+    def validate_backtest_consistency(cls, test: Test, results: TestResult):
         return test.to_dict() == results.test.to_dict()
 
-    def write_test_results(self, results: TestResults):
+    def write_test_results(self, results: TestResult):
         assert not self.read_only
         results.test.state = TestState.COMPLETED
         results_path = self.get_results_path(results.test)
@@ -254,7 +254,7 @@ class Coordinator:
                 # If read_backtest request fails, or downloaded results fail validation, don't do anything.
                 # We'll try again later.
                 if read_backtest_resp["success"]:
-                    results = TestResults(test, read_backtest_resp["backtest"])
+                    results = TestResult(test, read_backtest_resp["backtest"])
                     self.cio.write_test_results(results)
         except TestResultValidationException:
             self.logger.error(f"{test.name} api results fail validation")

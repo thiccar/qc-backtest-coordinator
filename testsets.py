@@ -82,7 +82,7 @@ class TestResultValidationException(Exception):
     pass
 
 
-class TestResults:
+class TestResult:
 
     required_keys = ["alphaRuntimeStatistics", "runtimeStatistics", "statistics", "totalPerformance"]
 
@@ -105,7 +105,7 @@ class TestResults:
 
     @staticmethod
     def from_dict(d: dict):
-        return TestResults(Test.from_dict(d["test"]), d["backtest"])
+        return TestResult(Test.from_dict(d["test"]), d["backtest"])
 
     """
     Utility methods for accessing result fields
@@ -194,7 +194,7 @@ class TestSet(ABC):
     def tests(self):
         pass
     
-    def on_test_completed(self, results: TestResults):
+    def on_test_completed(self, results: TestResult):
         pass
 
 

@@ -1,23 +1,19 @@
 from collections import Counter
-import copy
 import csv
-from datetime import datetime, timedelta
 import functools
 import json
 import logging
-import math
 from pathlib import Path
 from time import sleep
 
 from api.ratelimitedapi import RateLimitedApi
-from testsets import Test, TestResults, TestSet, TestState
+from testsets import Test, TestResults, TestResultValidationException, TestSet, TestState
 
 
 class CoordinatorIO:
     """Methods for reading and writing state files and test results"""
 
     logger = logging.getLogger(__name__)
-    required_keys = ["alphaRuntimeStatistics", "runtimeStatistics", "rollingWindow", "statistics", "totalPerformance"]
 
     def __init__(self, test_set_path, read_only=True, mkdir=False):
         self.test_set_path = test_set_path
@@ -28,20 +24,17 @@ class CoordinatorIO:
         self.report_path = self.test_set_path / "report.csv"
         self.log_path = self.test_set_path / "log.txt"
 
-    def read_and_validate_results(self, test) -> TestResults:
+    def read_test_results(self, test) -> TestResults:
         results_path = self.get_results_path(test)
         try:
             if results_path.exists():
                 with results_path.open() as f:
                     stored = json.load(f)
-                    if self.validate_backtest_results(stored["backtest"]):
-                        results = TestResults.from_dict(stored)
-                        if not self.validate_backtest_consistency(test, results):
-                            self.logger.error(f"Inconsistent test & results: {test.to_dict()} {results.test.to_dict()}")
-                        results.test = test  # Re-use the passed in object
-                        return results
-                    else:
-                        self.logger.error(f"{test.name} stored results fail validation")
+                    results = TestResults.from_dict(stored)
+                    if not self.validate_backtest_consistency(test, results):
+                        self.logger.error(f"Inconsistent test & results: {test.to_dict()} {results.test.to_dict()}")
+                    results.test = test  # Re-use the passed in object
+                    return results
             return None
         except json.decoder.JSONDecodeError:
             self.logger.error(f"{test.name} results json decode failed")
@@ -49,24 +42,15 @@ class CoordinatorIO:
             raise
 
     @classmethod
-    def validate_backtest_results(cls, results):
-        # check key presence and value not null or []
-        return all((key in results and results[key]) for key in cls.required_keys)
-
-    @classmethod
     def validate_backtest_consistency(cls, test: Test, results: TestResults):
         return test.to_dict() == results.test.to_dict()
 
-    def validate_and_write_results(self, results: TestResults) -> bool:
+    def write_test_results(self, results: TestResults):
         assert not self.read_only
-        if self.validate_backtest_results(results.bt_results):
-            results.test.state = TestState.COMPLETED
-            results_path = self.get_results_path(results.test)
-            with results_path.open('w') as f:
-                json.dump(results.to_dict(), f, indent=4)
-            return True
-        else:
-            return False
+        results.test.state = TestState.COMPLETED
+        results_path = self.get_results_path(results.test)
+        with results_path.open('w') as f:
+            json.dump(results.to_dict(), f, indent=4)
 
     def get_results_path(self, test):
         name = test.name if isinstance(test, Test) else test["name"]  # Support Test or dict
@@ -258,20 +242,23 @@ class Coordinator:
         """Download results for completed test and save them, also mark test state as completed.
         In future may pass this to test set to help it initialize generator state
         """
-        results = self.cio.read_and_validate_results(test)  # See if already stored results locally
-        if results:
-            self.logger.debug(f"{test.name} completed and results already downloaded")
-        else:
-            self.logger.info(f"{test.name} completed, downloading results")
-            read_backtest_resp = self.api.read_backtest(self.project_id, test.backtest_id)
-            
-            # If read_backtest request fails, or downloaded results fail validation, don't do anything.
-            # We'll try again later.
-            if read_backtest_resp["success"]:
-                results = TestResults(test, read_backtest_resp["backtest"])
-                if not self.cio.validate_and_write_results(results):
-                    results = None
-                    self.logger.error(f"{test.name} api results fail validation, not storing")
+        try:
+            # TODO: This will read all the local files on every loop, can probably add a check to only do it once
+            results = self.cio.read_test_results(test)  # See if already stored results locally
+            if results:
+                self.logger.debug(f"{test.name} completed and results already downloaded")
+            else:
+                self.logger.info(f"{test.name} completed, downloading results")
+                read_backtest_resp = self.api.read_backtest(self.project_id, test.backtest_id)
+
+                # If read_backtest request fails, or downloaded results fail validation, don't do anything.
+                # We'll try again later.
+                if read_backtest_resp["success"]:
+                    results = TestResults(test, read_backtest_resp["backtest"])
+                    self.cio.write_test_results(results)
+        except TestResultValidationException:
+            self.logger.error(f"{test.name} api results fail validation")
+            results = None
 
         if results:
             self.test_set.on_test_completed(results)
@@ -280,10 +267,7 @@ class Coordinator:
     def generate_csv_report(self):
         rows = []
         for test in self.tests:
-            results = self.cio.read_and_validate_results(test)
-            if not results:
-                self.logger.warning(f"{test.name} invalid results, not including in report")
-                continue
+            results = self.cio.read_test_results(test)
 
             statistics = results.bt_results["statistics"]
             for k in ["SortinoRatio", "ReturnOverMaxDrawdown"]:

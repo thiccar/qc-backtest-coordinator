@@ -78,14 +78,27 @@ class Test:
         return f"{prefix}_{cool_name}"
 
 
+class TestResultValidationException(Exception):
+    pass
+
+
 class TestResults:
+
+    required_keys = ["alphaRuntimeStatistics", "runtimeStatistics", "statistics", "totalPerformance"]
+
     def __init__(self, test: Test, bt_results: dict):
         self.test = test
+        if not self.validate_backtest_results(bt_results):
+            raise TestResultValidationException()
         self.bt_results = bt_results
         self.runtime_statistics = bt_results["runtimeStatistics"]
         self.statistics = bt_results["statistics"]
         self.alpha_runtime_statistics = bt_results["alphaRuntimeStatistics"]
         self.trade_statistics = bt_results["totalPerformance"]["TradeStatistics"]
+
+    @classmethod
+    def validate_backtest_results(cls, bt_results):
+        return all((key in bt_results and bt_results[key]) for key in cls.required_keys)
 
     def to_dict(self) -> dict:
         return {"test": self.test.to_dict(), "backtest": self.bt_results}

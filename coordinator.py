@@ -112,9 +112,10 @@ class Coordinator:
         locally only.
         """
         list_backtests_resp = self.api.list_backtests(self.project_id)
-        assert list_backtests_resp["success"]
-        self.backtests = list_backtests_resp["backtests"]
-        self.update_tests_state()
+        if list_backtests_resp["success"]:
+            self.backtests = list_backtests_resp["backtests"]
+            self.update_tests_state()
+        return list_backtests_resp["success"]
 
     def update_tests_state(self):
         self.state_counter.clear()
@@ -157,7 +158,11 @@ class Coordinator:
         test_generator = self.test_set.tests()
         try:
             while True:
-                self.update_tests_state_from_api()
+                if not self.update_tests_state_from_api():
+                    self.logger.error("Error updating tests state from API")
+                    sleep(15)
+                    continue
+
                 self.logger.info(f"generator_done={self.generator_done} generated_cnt={self.generated_cnt} "
                                  f"len(tests)={len(self.tests)} "
                                  f"len(backtests)={len(self.backtests)} state_counter={self.state_counter}")

@@ -46,7 +46,7 @@ class CoordinatorIO:
         td = test.to_dict()
         rd = result.test.to_dict()
         if td != rd:
-            cls.logger.error(f"Inconsistent test & result: {test.to_dict()} {result.test.to_dict()}")
+            cls.logger.error(f"Inconsistent test & result: {td} {rd}")
             cls.logger.error(list(dictdiffer.diff(td, rd)))
 
     def write_test_result(self, result: TestResult):

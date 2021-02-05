@@ -349,7 +349,9 @@ class WalkForwardSingle(TestSet):
                 self.opt_tests[i] = (t, results)
 
     def generate_oos_test(self):
+        obj_values = [self.objective_fn(r) for (t, r) in self.opt_tests]
         best = max((r for (t, r) in self.opt_tests), key=self.objective_fn)
+        self.logger.info(f"obj_values={obj_values} max={max(obj_values)}")
         params = copy.deepcopy(best.test.params)
         params["start"] = self.oos_start.isoformat()
         params["end"] = self.oos_end.isoformat()

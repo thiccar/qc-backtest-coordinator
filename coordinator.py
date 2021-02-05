@@ -6,6 +6,8 @@ import logging
 from pathlib import Path
 from time import sleep
 
+import dictdiffer
+
 from api.ratelimitedapi import RateLimitedApi
 from testsets import Test, TestResult, TestResultValidationException, TestSet, TestState
 
@@ -31,19 +33,21 @@ class CoordinatorIO:
                 with result_path.open() as f:
                     stored = json.load(f)
                     result = TestResult.from_dict(stored)
-                    if not self.validate_backtest_consistency(test, result):
-                        self.logger.error(f"Inconsistent test & result: {test.to_dict()} {result.test.to_dict()}")
+                    self.validate_backtest_consistency(test, result)
                     result.test = test  # Re-use the passed in object
                     return result
             return None
         except json.decoder.JSONDecodeError:
             self.logger.error(f"{test.name} result json decode failed")
-            # TODO: Delete file so it will be re-downloaded?
-            raise
+            raise  # Something has gone very wrong, fail loud and fast
 
     @classmethod
     def validate_backtest_consistency(cls, test: Test, result: TestResult):
-        return test.to_dict() == result.test.to_dict()
+        td = test.to_dict()
+        rd = result.test.to_dict()
+        if td != rd:
+            cls.logger.error(f"Inconsistent test & result: {test.to_dict()} {result.test.to_dict()}")
+            cls.logger.error(list(dictdiffer.diff(td, rd)))
 
     def write_test_result(self, result: TestResult):
         assert not self.read_only
@@ -51,6 +55,10 @@ class CoordinatorIO:
         result_path = self.get_test_result_path(result.test)
         with result_path.open('w') as f:
             json.dump(result.to_dict(), f, indent=4)
+
+    def test_result_exists(self, test):
+        result_path = self.get_test_result_path(test)
+        return result_path.exists()
 
     def get_test_result_path(self, test):
         name = test.name if isinstance(test, Test) else test["name"]  # Support Test or dict
@@ -173,7 +181,7 @@ class Coordinator:
                 limit = concurrency - self.state_counter[TestState.RUNNING]
                 launched = 0
                 self.logger.debug(f"Launching up to {limit} new tests")
-                while launched < limit:
+                while launched < limit and not self.generator_done:
                     test = self.get_next_test(test_generator)
                     if test is None:
                         self.logger.info("generator done")
@@ -243,17 +251,18 @@ class Coordinator:
             test.state = TestState.RUNNING
             self.logger.info(f"{test.name} launched")
 
-    def on_test_completed(self, test):
+    def on_test_completed(self, test: Test):
         """Download result for completed test and save them, also mark test state as completed.
         In future may pass this to test set to help it initialize generator state
         """
+        if test.result_saved:
+            return
         try:
-            # TODO: This will read all the local files on every loop, can probably add a check to only do it once
             result = self.cio.read_test_result(test)  # See if already stored result locally
             if result:
                 self.logger.debug(f"{test.name} completed and result already downloaded")
             else:
-                self.logger.info(f"{test.name} completed, downloading result")
+                self.logger.info(f"{test.name} completed, downloading result, attempt={test.read_backtest_attempts}")
                 read_backtest_resp = self.api.read_backtest(self.project_id, test.backtest_id)
 
                 # If read_backtest request fails, or downloaded result fail validation, don't do anything.
@@ -262,11 +271,23 @@ class Coordinator:
                     result = TestResult(test, read_backtest_resp["backtest"])
                     self.cio.write_test_result(result)
         except TestResultValidationException:
-            self.logger.error(f"{test.name} api result fail validation")
+            # Sometimes results aren't available right away, so we have retries here
+            test.read_backtest_attempts += 1
+            self.logger.error(f"{test.name} api result fail validation, attempts={test.read_backtest_attempts}")
+            if test.read_backtest_attempts >= 10:
+                # Assume by this point that it will never work, rename it and set state to created so it will be
+                # launched in next loop iteration
+                self.logger.error(f"giving up on read_backtest for {test.name}, will relaunch it")
+                update_backtest_resp = self.api.update_backtest(self.project_id, test.backtest_id, f"(FAILED) {test.name}")
+                if update_backtest_resp["success"]:
+                    test.backtest_id = None
+                    test.state = TestState.CREATED
+                    test.read_backtest_attempts = 0
             result = None
 
         if result:
             self.test_set.on_test_completed(result)
+            test.result_saved = True
 
     # TODO maybe put this in a separate module
     def generate_csv_report(self):

@@ -100,8 +100,8 @@ class TestResult:
         self.trade_statistics = bt_result["totalPerformance"]["TradeStatistics"]
 
     @classmethod
-    def validate_backtest_results(cls, bt_results):
-        return all((key in bt_results and bt_results[key]) for key in cls.required_keys)
+    def validate_backtest_results(cls, bt_result):
+        return all((key in bt_result and bt_result[key]) for key in cls.required_keys)
 
     def to_dict(self) -> dict:
         return {"test": self.test.to_dict(), "backtest": self.bt_result}

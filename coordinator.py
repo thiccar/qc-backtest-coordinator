@@ -33,6 +33,7 @@ class CoordinatorIO:
                 with result_path.open() as f:
                     stored = json.load(f)
                     result = TestResult.from_dict(stored)
+                    test.state = TestState.COMPLETED
                     self.validate_backtest_consistency(test, result)
                     result.test = test  # Re-use the passed in object
                     return result
@@ -155,7 +156,6 @@ class Coordinator:
             else:
                 test.backtest_id = existing_bt["backtestId"]
                 if existing_bt["completed"]:
-                    test.state = TestState.COMPLETED
                     self.on_test_completed(test)
                 else:
                     test.state = TestState.RUNNING

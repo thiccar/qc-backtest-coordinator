@@ -384,6 +384,9 @@ class WalkForwardMultiple(TestSet):
         return f"wf_{self.opt_months}_{self.oos_months}_{self.start.isoformat()}_{self.end.isoformat()}"
 
     def tests(self):
+        """Currently this runs all tests from one walk forward step before beginning any from the next step.  This is
+        useful since it groups all tests for a single step together in the backtest list on QC.  However, it is slower
+        since it has to wait for all optimization tests for a walk-forward step to finish before it can move forward."""
         for wf in self.walk_forwards:
             for test in wf.tests():
                 yield test
@@ -406,7 +409,7 @@ class WalkForwardMultiple(TestSet):
         opt_start = self.start
         while opt_start + relativedelta(months=self.opt_months + self.oos_months) - timedelta(1) <= self.end:
             wfs = WalkForwardSingle(opt_start, self.opt_months, self.oos_months, self.param_grid,
-                                  self.objective_fn, self.params_filter)
+                                    self.objective_fn, self.params_filter)
             sub.append(wfs)
 
             opt_start += relativedelta(months=self.oos_months)

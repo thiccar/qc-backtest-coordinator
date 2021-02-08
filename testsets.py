@@ -289,7 +289,7 @@ class GridSearch(TestSet):
                 if not self.params_filter or self.params_filter(params):
                     params["start"] = start.isoformat()
                     params["end"] = end.isoformat()
-                    name = Test.generate_name(f"{self.name()}", params)
+                    name = Test.generate_name(f"gs_{start.isoformat()}_{end.isoformat()}", params)
                     test = Test(name, params)
                     yield test
 

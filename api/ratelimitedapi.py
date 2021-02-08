@@ -24,9 +24,8 @@ class RateLimitedApi(Api):
         project_list = self.list_projects()
         return next((p for p in project_list["projects"] if p["name"] == name), None)
 
-    def update_parameters_file(self, project_id, parameters):
+    def update_parameters_file(self, project_id, parameters, extraneous_parameters=None):
         """returns True or False indicating success"""
-        parameters_json = json.dumps(parameters)
         # Get the file
         file_resp = self.read_project_file(project_id, "parameters.py")
         if not file_resp["success"]:
@@ -35,7 +34,15 @@ class RateLimitedApi(Api):
 
         # Update the content
         def update_line(line):
-            return line if line.find("_parametersJson =") < 0 else f"_parametersJson = '{parameters_json}'"
+            if line.find("_parametersJson =") >= 0:
+                parameters_json = json.dumps(parameters)
+                return f"_parametersJson = '{parameters_json}'"
+            elif extraneous_parameters and line.find("_extraneousParametersJson =") >= 0:
+                extraneous_parameters_json = json.dumps(extraneous_parameters)
+                return f"_extraneousParametersJson = '{extraneous_parameters_json}'"
+            else:
+                return line
+
         file_content = file_resp["files"][0]["content"]
         lines = file_content.split("\n")
         new_lines = [update_line(line) for line in lines]

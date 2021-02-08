@@ -158,6 +158,12 @@ class TestResult:
     def sortino_ratio(self):
         return Decimal(self.alpha_runtime_statistics["SortinoRatio"])
 
+    def sharpe_ratio(self):
+        return Decimal(self.statistics["Sharpe Ratio"])
+
+    def probabilistic_sharpe_ratio(self):
+        return self.parse_percent(self.statistics["Probabilistic Sharpe Ratio"])
+
     def proe(self):
         """Pessimistic return on equity. Variant of PROM (Pessimistic Return on Margin) from Pardo's book "The
         Evaluation and Optimization of Trading Strategies" (chp 9). Make gross profit more pessimistic by reducing

@@ -232,7 +232,7 @@ class Coordinator:
 
     def launch_test(self, test):
         """update parameters file, compile, and launch backtest"""
-        if not self.api.update_parameters_file(self.project_id, test.params):
+        if not self.api.update_parameters_file(self.project_id, test.params, test.extraneous_params):
             self.logger.error(f"{test.name} update_parameters_file failed")
             return
 

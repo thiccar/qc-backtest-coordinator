@@ -45,7 +45,8 @@ USA_EQ_SIDEWAYS_MARKETS = [
 
 class Test:
     """Utility class for grouping together various pieces of information about a test."""
-    def __init__(self, name: str, params, backtest_id=None, state=TestState.CREATED):
+
+    def __init__(self, name: str, params, backtest_id=None, state=TestState.CREATED, extraneous_params=None):
         self.name = name
 
         # Use datetime here to be more general, however most of the test sets work with dates
@@ -62,6 +63,7 @@ class Test:
         self.params = params
         self.backtest_id = backtest_id
         self.state = state
+        self.extraneous_params = extraneous_params
 
         self.read_backtest_attempts = 0
         self.result_saved = False

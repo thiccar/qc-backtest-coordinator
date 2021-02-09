@@ -27,7 +27,7 @@ class CoordinatorIO:
         self.log_path = self.test_set_path / "log.txt"
 
     def read_test_result(self, test) -> TestResult:
-        result_path = self.get_test_result_path(test)
+        result_path = self.test_result_path(test)
         try:
             if result_path.exists():
                 with result_path.open() as f:
@@ -53,15 +53,15 @@ class CoordinatorIO:
     def write_test_result(self, result: TestResult):
         assert not self.read_only
         result.test.state = TestState.COMPLETED
-        result_path = self.get_test_result_path(result.test)
+        result_path = self.test_result_path(result.test)
         with result_path.open('w') as f:
             json.dump(result.to_dict(), f, indent=4)
 
     def test_result_exists(self, test):
-        result_path = self.get_test_result_path(test)
+        result_path = self.test_result_path(test)
         return result_path.exists()
 
-    def get_test_result_path(self, test):
+    def test_result_path(self, test):
         name = test.name if isinstance(test, Test) else test["name"]  # Support Test or dict
         return self.test_set_path / f"{name}.json"
 

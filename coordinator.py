@@ -1,99 +1,12 @@
 from collections import Counter
-import csv
-import functools
-import json
 import logging
 from pathlib import Path
 from time import sleep
 
-import dictdiffer
-
+from analysis import Analysis
 from api.ratelimitedapi import RateLimitedApi
+from coordinator_io import CoordinatorIO
 from testsets import Test, TestResult, TestResultValidationException, TestSet, TestState
-
-
-class CoordinatorIO:
-    """Methods for reading and writing state files and test results"""
-
-    logger = logging.getLogger(__name__)
-
-    def __init__(self, test_set_path, read_only=True, mkdir=False):
-        self.test_set_path = test_set_path
-        if not read_only and mkdir and not self.test_set_path.exists():
-            self.test_set_path.mkdir(parents=True)
-        self.read_only = read_only
-        self.state_path = self.test_set_path / "state.json"
-        self.report_path = self.test_set_path / "report.csv"
-        self.log_path = self.test_set_path / "log.txt"
-
-    def read_test_result(self, test) -> TestResult:
-        result_path = self.test_result_path(test)
-        try:
-            if result_path.exists():
-                with result_path.open() as f:
-                    stored = json.load(f)
-                    result = TestResult.from_dict(stored)
-                    test.state = TestState.COMPLETED
-                    self.validate_backtest_consistency(test, result)
-                    result.test = test  # Re-use the passed in object
-                    return result
-            return None
-        except json.decoder.JSONDecodeError:
-            self.logger.error(f"{test.name} result json decode failed")
-            raise  # Something has gone very wrong, fail loud and fast
-
-    @classmethod
-    def validate_backtest_consistency(cls, test: Test, result: TestResult):
-        td = test.to_dict()
-        rd = result.test.to_dict()
-        if td != rd:
-            cls.logger.error(f"Inconsistent test & result: {td} {rd}")
-            cls.logger.error(list(dictdiffer.diff(td, rd)))
-
-    def write_test_result(self, result: TestResult):
-        assert not self.read_only
-        result.test.state = TestState.COMPLETED
-        result_path = self.test_result_path(result.test)
-        with result_path.open('w') as f:
-            json.dump(result.to_dict(), f, indent=4)
-
-    def test_result_exists(self, test):
-        result_path = self.test_result_path(test)
-        return result_path.exists()
-
-    def test_result_path(self, test):
-        name = test.name if isinstance(test, Test) else test["name"]  # Support Test or dict
-        return self.test_set_path / f"{name}.json"
-
-    def read_test_log(self, test):
-        log_path = self.test_log_path(test)
-        with log_path.open() as f:
-            return f.read()
-
-    def write_test_log(self, test, log):
-        log_path = self.test_log_path(test)
-        with log_path.open("w") as f:
-            for line in log:
-                f.write(line)
-                f.write("\n")
-
-    def test_log_path(self, test):
-        name = test.name if isinstance(test, Test) else test["name"]  # Support Test or dict
-        return self.test_set_path / f"{name}.log"
-
-    def read_state(self):
-        """Read state from JSON file, if it exists"""
-        if self.state_path.exists():
-            with self.state_path.open() as f:
-                return json.load(f)
-
-    def write_state(self, state):
-        """Serialize given object to JSON and write to state file"""
-        assert not self.read_only
-        # We assume here that the serialized state is always growing, so there is no risk of writing
-        # new file with fewer bytes than previous
-        with self.state_path.open('w') as f:
-            json.dump(state, f, indent=4)
 
 
 class Coordinator:
@@ -314,31 +227,9 @@ class Coordinator:
             self.cio.write_test_log(test, read_log_resp["BacktestLogs"])
             test.log_saved = True
 
-    # TODO maybe put this in a separate module
     def generate_csv_report(self):
-        rows = []
-        for test in self.tests:
-            result = self.cio.read_test_result(test)
-
-            statistics = result.bt_result["statistics"]
-            for k in ["SortinoRatio", "ReturnOverMaxDrawdown"]:
-                statistics[k] = result.bt_result["alphaRuntimeStatistics"][k]
-            statistics["PROE"] = result.proe()
-            rows.append((test, statistics))
-        
-        params_keys = functools.reduce(lambda s1, s2: s1 | s2,
-                                       (set(t.params.keys()) for (t, _) in rows if isinstance(t.params, dict)))
-        result_keys = functools.reduce(lambda s1, s2: s1 | s2, (set(s.keys()) for (_, s) in rows))
-        field_names = ["name"] + list(params_keys) + list(result_keys)
-        # https://stackoverflow.com/questions/3348460/csv-file-written-with-python-has-blank-lines-between-each-row
-        with self.cio.report_path.open("w", newline="") as f:
-            writer = csv.DictWriter(f, field_names)
-            writer.writeheader()
-            for (t, s) in rows:
-                d = dict([("name", t.name)] +
-                         (list(t.params.items()) if isinstance(t.params, dict) else []) +
-                         list(s.items()))
-                writer.writerow(d)
+        anal = Analysis(self.cio.test_set_path)
+        anal.generate_csv_report()
 
     def load_state(self):
         """Load state from JSON file, if it exists. Restores state of this object and of test_set"""

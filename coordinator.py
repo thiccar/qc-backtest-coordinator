@@ -65,6 +65,22 @@ class CoordinatorIO:
         name = test.name if isinstance(test, Test) else test["name"]  # Support Test or dict
         return self.test_set_path / f"{name}.json"
 
+    def read_test_log(self, test):
+        log_path = self.test_log_path(test)
+        with log_path.open() as f:
+            return f.read()
+
+    def write_test_log(self, test, log):
+        log_path = self.test_log_path(test)
+        with log_path.open("w") as f:
+            for line in log:
+                f.write(line)
+                f.write("\n")
+
+    def test_log_path(self, test):
+        name = test.name if isinstance(test, Test) else test["name"]  # Support Test or dict
+        return self.test_set_path / f"{name}.log"
+
     def read_state(self):
         """Read state from JSON file, if it exists"""
         if self.state_path.exists():
@@ -252,11 +268,14 @@ class Coordinator:
             self.logger.info(f"{test.name} launched")
 
     def on_test_completed(self, test: Test):
-        """Download result for completed test and save them, also mark test state as completed.
-        In future may pass this to test set to help it initialize generator state
-        """
-        if test.result_saved:
-            return
+        if not test.result_saved:
+            self.save_test_result(test)
+
+        if not test.log_saved:
+            self.save_test_log(test)
+
+    def save_test_result(self, test):
+        """Download result for completed test and save it, also mark test state as completed."""
         try:
             result = self.cio.read_test_result(test)  # See if already stored result locally
             if result:
@@ -288,6 +307,12 @@ class Coordinator:
         if result:
             self.test_set.on_test_completed(result)
             test.result_saved = True
+
+    def save_test_log(self, test):
+        read_log_resp = self.api.read_backtest_log(self.project_id, test.backtest_id)
+        if read_log_resp["success"]:
+            self.cio.write_test_log(test, read_log_resp["BacktestLogs"])
+            test.log_saved = True
 
     # TODO maybe put this in a separate module
     def generate_csv_report(self):

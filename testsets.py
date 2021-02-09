@@ -67,6 +67,7 @@ class Test:
 
         self.read_backtest_attempts = 0
         self.result_saved = False
+        self.log_saved = False
     
     def to_dict(self) -> dict:
         return {"name": self.name, "params": self.params, "backtest_id": self.backtest_id, "state": self.state.name}

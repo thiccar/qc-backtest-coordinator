@@ -398,8 +398,7 @@ class WalkForwardMultiple(TestSet):
         for wf in self.walk_forwards:
             for test in wf.tests():
                 # Because a multi-step walk forward analysis produces so many tests, set a higher log level on each of
-                # the sub-tests since they are short and can be re-run quickly to debug issues.  The combined OOS test
-                # takes a long time to run so we leave debug logging on for that one.
+                # the sub-tests since they are short and can be re-run quickly to debug issues.
                 test.extraneous_params = {"logLevel": "INFO"}
                 yield test
             self.logger.info(f"Finished all tests for walk forward opt={wf.opt_start} - {wf.opt_end}"
@@ -414,7 +413,9 @@ class WalkForwardMultiple(TestSet):
         start = params_list[0]["start"]
         end = params_list[-1]["end"]
         name = Test.generate_name(f"wf_{self.opt_months}_{self.oos_months}_oos_{self.start}_{self.end}", params_list)
-        return Test(name, params_list)
+
+        # The combined OOS test takes a long time to run so we leave debug logging on for it
+        return Test(name, params_list, extraneous_params={"logLevel": "DEBUG"})
 
     def sub_tests(self):
         sub = []

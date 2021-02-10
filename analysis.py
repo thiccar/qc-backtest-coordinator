@@ -22,7 +22,8 @@ class Analysis:
 
     def results(self, only_keep_useful=False):
         for t in self.tests():
-            if t.state == TestState.RUNNING:  # Allows us to run this while backtests are running to see intermediate results
+            # Allows us to run this while backtests are running to see intermediate results
+            if t.state == TestState.RUNNING:
                 continue
             result = self.cio.read_test_result(t)
 
@@ -36,11 +37,11 @@ class Analysis:
     def generate_csv_report(self):
         rows = []
         for result in self.results():
-            statistics = result.bt_result["statistics"]
+            stats = result.bt_result["statistics"]
             for k in ["SortinoRatio", "ReturnOverMaxDrawdown"]:
-                statistics[k] = result.bt_result["alphaRuntimeStatistics"][k]
-            statistics["PROE"] = result.proe()
-            rows.append((result.test, statistics))
+                stats[k] = result.bt_result["alphaRuntimeStatistics"][k]
+            stats["PROE"] = result.proe()
+            rows.append((result.test, stats))
 
         params_keys = functools.reduce(lambda s1, s2: s1 | s2,
                                        (set(t.params.keys()) for (t, _) in rows if isinstance(t.params, dict)))
@@ -91,6 +92,9 @@ class Analysis:
     def error_logs(self):
         mapping = {}
         for t in self.tests():
+            # Allows us to run this while backtests are running to see intermediate results
+            if t.state == TestState.RUNNING:
+                continue
             errors = []
             log = self.cio.read_test_log(t)
             for line in log:

@@ -313,7 +313,7 @@ class WalkForwardSingle(TestSet):
 
     # TODO: Consider using relativedelta here
     def __init__(self, opt_start: date, opt_months: int, oos_months: int, param_grid: dict,
-                 objective_fn, params_filter=None):
+                 objective_fn, params_filter=None, extraneous_params=None):
         """Assumption is that objective_fn produces higher scores for better results"""
         self.opt_start = opt_start
         self.opt_months = opt_months
@@ -325,6 +325,7 @@ class WalkForwardSingle(TestSet):
         self.param_grid = param_grid
         self.objective_fn = objective_fn
         self.params_filter = params_filter
+        self.extraneous_params = extraneous_params
 
         self.opt_tests = []
         self.oos_test = None
@@ -340,7 +341,7 @@ class WalkForwardSingle(TestSet):
             params["start"] = self.opt_start.isoformat()
             params["end"] = self.opt_end.isoformat()
             name = Test.generate_name(f"wf_{self.opt_months}_{self.oos_months}_opt_{self.opt_start}_{self.opt_end}", params)
-            test = Test(name, params)
+            test = Test(name, params, extraneous_params=self.extraneous_params)
             self.opt_tests.append((test, None))
             yield test
 
@@ -369,7 +370,7 @@ class WalkForwardSingle(TestSet):
         params["start"] = self.oos_start.isoformat()
         params["end"] = self.oos_end.isoformat()
         name = Test.generate_name(f"wf_{self.opt_months}_{self.oos_months}_oos_{self.oos_start}_{self.oos_end}", params)
-        return Test(name, params)
+        return Test(name, params, extraneous_params=self.extraneous_params)
 
 
 class WalkForwardMultiple(TestSet):
@@ -377,7 +378,7 @@ class WalkForwardMultiple(TestSet):
 
     # TODO: Consider using relativedelta here
     def __init__(self, start: date, end: date, opt_months: int, oos_months: int, param_grid: dict,
-                 objective_fn, params_filter=None):
+                 objective_fn, params_filter=None, extraneous_params={}):
         assert opt_months != oos_months, "Use different (ideally higher) optimization window from oos window"
         self.start = start
         self.end = end
@@ -386,6 +387,7 @@ class WalkForwardMultiple(TestSet):
         self.param_grid = param_grid
         self.objective_fn = objective_fn
         self.params_filter = params_filter
+        self.extraneous_params = extraneous_params
 
         self.walk_forwards = self.sub_tests()
         self.oos_test = None
@@ -401,7 +403,8 @@ class WalkForwardMultiple(TestSet):
             for test in wf.tests():
                 # Because a multi-step walk forward analysis produces so many tests, set a higher log level on each of
                 # the sub-tests since they are short and can be re-run quickly to debug issues.
-                test.extraneous_params = {"logLevel": "INFO"}
+                if test != self.NO_OP:
+                    test.extraneous_params["logLevel"] = "INFO"
                 yield test
             self.logger.info(f"Finished all tests for walk forward opt={wf.opt_start} - {wf.opt_end}"
                              f" oos={wf.oos_start} - {wf.oos_end}")
@@ -417,14 +420,15 @@ class WalkForwardMultiple(TestSet):
         name = Test.generate_name(f"wf_{self.opt_months}_{self.oos_months}_oos_{self.start}_{self.end}", params_list)
 
         # The combined OOS test takes a long time to run so we leave debug logging on for it
-        return Test(name, params_list, extraneous_params={"logLevel": "DEBUG"})
+        loglevel = {"logLevel": "DEBUG"}
+        return Test(name, params_list, extraneous_params={**self.extraneous_params, **loglevel})
 
     def sub_tests(self):
         sub = []
         opt_start = self.start
         while opt_start + relativedelta(months=self.opt_months + self.oos_months) - timedelta(1) <= self.end:
             wfs = WalkForwardSingle(opt_start, self.opt_months, self.oos_months, self.param_grid,
-                                    self.objective_fn, self.params_filter)
+                                    self.objective_fn, self.params_filter, self.extraneous_params)
             sub.append(wfs)
 
             opt_start += relativedelta(months=self.oos_months)

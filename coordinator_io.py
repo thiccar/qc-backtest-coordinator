@@ -71,6 +71,10 @@ class CoordinatorIO:
                 f.write(line)
                 f.write("\n")
 
+    def test_log_exists(self, test):
+        log_path = self.test_log_path(test)
+        return log_path.exists()
+
     def test_log_path(self, test):
         name = test.name if isinstance(test, Test) else test["name"]  # Support Test or dict
         return self.test_set_path / f"{name}.log"

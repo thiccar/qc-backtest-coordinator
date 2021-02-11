@@ -420,7 +420,7 @@ class WalkForwardMultiple(TestSet):
         params_list = [wf.oos_test.params for wf in self.walk_forwards]
         start = params_list[0]["start"]
         end = params_list[-1]["end"]
-        name = Test.generate_name(f"wf_{self.opt_months}_{self.oos_months}_oos_{self.start}_{self.end}", params_list)
+        name = Test.generate_name(f"wf_{self.opt_months}_{self.oos_months}_oos_{start}_{end}", params_list)
 
         # The combined OOS test takes a long time to run so we leave debug logging on for it
         loglevel = {"logLevel": "DEBUG"}

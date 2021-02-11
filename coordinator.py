@@ -77,12 +77,13 @@ class Coordinator:
                 self.logger.error(test.to_dict())
                 self.logger.error(existing_bt["error"])
                 assert False
-            elif test.backtest_id and test.backtest_id != existing_bt["backtestId"]:
-                self.logger.error("Possible duplicate")
-                self.logger.error(f"{test.name} backtest_id: {test.backtest_id} != "
-                                  f"QC backtestId: {existing_bt['backtestId']}")
-                assert False
             else:
+                # Sometimes a backtest gets launched but isn't returned in the list of backtests, so it gets launched
+                # again.
+                if test.backtest_id and test.backtest_id != existing_bt["backtestId"]:
+                    self.logger.error(f"Possible duplicate {test.name} backtest_id: {test.backtest_id} != "
+                                      f"QC backtestId: {existing_bt['backtestId']}")
+
                 test.backtest_id = existing_bt["backtestId"]
                 if existing_bt["completed"]:
                     self.on_test_completed(test)

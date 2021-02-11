@@ -192,7 +192,7 @@ class Coordinator:
         try:
             result = self.cio.read_test_result(test)  # See if already stored result locally
             if result:
-                self.logger.debug(f"{test.name} completed and result already downloaded")
+                self.logger.info(f"{test.name} completed and result already downloaded")
             else:
                 self.logger.info(f"{test.name} completed, downloading result, attempt={test.read_backtest_attempts}")
                 read_backtest_resp = self.api.read_backtest(self.project_id, test.backtest_id)

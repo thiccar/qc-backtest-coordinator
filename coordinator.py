@@ -222,10 +222,16 @@ class Coordinator:
             test.result_saved = True
 
     def save_test_log(self, test):
+        if self.cio.test_log_exists(test):
+            self.logger.info(f"{test.name} log already downloaded")
+            test.log_saved = True
+            return
+
         read_log_resp = self.api.read_backtest_log(self.project_id, test.backtest_id)
         if read_log_resp["success"]:
             self.cio.write_test_log(test, read_log_resp["BacktestLogs"])
             test.log_saved = True
+        self.logger.info(f"{test.name} save_test_log success={read_log_resp['success']}")
 
     def generate_csv_report(self):
         anal = Analysis(self.cio.test_set_path)

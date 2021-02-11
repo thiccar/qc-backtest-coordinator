@@ -11,15 +11,17 @@ logger = logging.getLogger(__name__)
 logging.getLogger("requests").setLevel(logging.WARNING)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
 
+session = requests.Session()
+
 
 def post(**kwargs):
     new_kwargs = {**kwargs, **{"timeout": 10}}
-    return requests.post(**new_kwargs)
+    return session.post(**new_kwargs)
 
 
 def get(**kwargs):
     new_kwargs = {**kwargs, **{"timeout": 10}}
-    return requests.get(**new_kwargs)
+    return session.get(**new_kwargs)
 
 
 setattr(quantconnect.api, "get", get)

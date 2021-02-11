@@ -1,8 +1,9 @@
 import json
 import logging
-from ratelimit import limits, sleep_and_retry
+from ratelimit import limits, RateLimitException
 from time import sleep
 
+from backoff import on_exception, expo
 import quantconnect
 from quantconnect.api import Api
 import requests
@@ -32,8 +33,9 @@ class RateLimitedApi(Api):
     def __init__(self, user_id, token, debug=False):
         super().__init__(user_id, token, debug)
 
-    @sleep_and_retry
-    @limits(calls=20, period=60)  # 20 calls per minute
+    @on_exception(expo, exception=(requests.exceptions.RequestException, RateLimitException), max_tries=5,
+                  base=5, factor=2, max_value=10)  # kwargs that get passed to expo
+    @limits(calls=20, period=10)  # 20 calls every 10 seconds
     def Execute(self, endpoint, data=None, is_post=False, headers={}):
         # TODO: Move failure logging in here?
         return super().Execute(endpoint, data, is_post, headers)

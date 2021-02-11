@@ -3,11 +3,27 @@ import logging
 from ratelimit import limits, sleep_and_retry
 from time import sleep
 
+import quantconnect
 from quantconnect.api import Api
+import requests
 
 logger = logging.getLogger(__name__)
 logging.getLogger("requests").setLevel(logging.WARNING)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
+
+
+def post(**kwargs):
+    new_kwargs = {**kwargs, **{"timeout": 10}}
+    return requests.post(**new_kwargs)
+
+
+def get(**kwargs):
+    new_kwargs = {**kwargs, **{"timeout": 10}}
+    return requests.get(**new_kwargs)
+
+
+setattr(quantconnect.api, "get", get)
+setattr(quantconnect.api, "post", post)
 
 
 class RateLimitedApi(Api):

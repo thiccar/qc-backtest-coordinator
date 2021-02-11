@@ -179,6 +179,9 @@ class TestResult:
         adj_loss = self.avg_loss() * Decimal(self.losing_trades() + math.sqrt(self.losing_trades()))
 
         adj_total_return = (adj_gain + adj_loss) / initial_equity
+        if adj_total_return <= -1:  # Lost everything
+            return Decimal(-1)
+
         bt_years = (self.test.end - self.test.start) / timedelta(365)
         adj_annualized_return = ((1 + adj_total_return) ** Decimal(1 / bt_years)) - 1
 

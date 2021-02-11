@@ -93,3 +93,15 @@ class RateLimitedApi(Api):
                 print(f"compile state={read_compile_resp['state']}")
                 attempt += 1
                 create_compile_resp = self.create_compile(project_id)
+
+    def read_backtest_log(self, project_id, backtest_id):
+        """Read the log of a backtest in the project id specified.
+
+        Args:
+            project_id(int): Project id to read.
+            backtest_id(str): Specific backtest id to read.
+        Returns:
+            Dictionary that contains the backtest log e.g. {"BacktestLogs": ["array", "of", "log", "lines"]}
+        """
+        data = {"projectId": project_id, "backtestId": backtest_id, "format": "json"}
+        return self.Execute('backtests/read/log', data)

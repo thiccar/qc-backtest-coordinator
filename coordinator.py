@@ -25,6 +25,7 @@ class Coordinator:
         self.generated_cnt = 0
         self.tests = []  # Stores every test produced by the generator. Gets backed up to disk so we don't lose anything
         self.backtests = []  # List of backtests returned from QC API
+        self.backtests_by_name = {}  # Helper data structure to make lookup by name faster
         self.state_counter = Counter()
 
     def initialize(self):
@@ -52,6 +53,7 @@ class Coordinator:
         list_backtests_resp = self.api.list_backtests(self.project_id)
         if list_backtests_resp["success"]:
             self.backtests = list_backtests_resp["backtests"]
+            self.backtests_by_name = {bt["name"]: bt for bt in self.backtests}
             self.update_tests_state()
         return list_backtests_resp["success"]
 
@@ -62,12 +64,8 @@ class Coordinator:
             self.state_counter[test.state] += 1
 
     def update_test_state(self, test):
-        existing_bt = next((bt for bt in self.backtests if bt["name"] == test.name), None)
-        if existing_bt is None:
-            if test.state != TestState.CREATED:
-                self.logger.warning(f"Inconsistent state, thought {test.name} was launched, was not")
-            test.state = TestState.CREATED
-        else:
+        if test.name in self.backtests_by_name:
+            existing_bt = self.backtests_by_name[test.name]
             # Handle error and inconsistent state cases
             if existing_bt["status"] == "Runtime Error":
                 # Assuming that if there was a runtime error, there are bugs in the backtest code that need to be
@@ -89,6 +87,10 @@ class Coordinator:
                     self.on_test_completed(test)
                 else:
                     test.state = TestState.RUNNING
+        else:
+            if test.state != TestState.CREATED:
+                self.logger.warning(f"Inconsistent state, thought {test.name} was launched, was not")
+            test.state = TestState.CREATED
 
     def run(self):
         self.initialize()

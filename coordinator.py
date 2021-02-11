@@ -133,8 +133,8 @@ class Coordinator:
                     self.save_state()
                 
                 if launched > 0 or self.state_counter[TestState.RUNNING] > 0 or test == TestSet.NO_OP:
-                    self.logger.info("Sleeping for 15 secs")
-                    sleep(15)
+                    self.logger.info("Sleeping for 5 secs")
+                    sleep(5)
 
             self.save_state()
             self.logger.info("generating report")

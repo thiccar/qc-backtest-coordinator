@@ -7,6 +7,8 @@ import json
 import logging
 import statistics
 
+import matplotlib.pyplot as plt
+import numpy as np
 from tabulate import tabulate
 
 from coordinator_io import CoordinatorIO
@@ -235,3 +237,30 @@ class Analysis:
               f"Annualized Return = {annualized_return - 1}")
 
         return combined_xs, combined_ys
+
+    @classmethod
+    def total_trades_bar_graph(cls, fig, ax, results, label_fn=None):
+        """Sanity check - Graph number of trades to look for outliers"""
+        xs = [label_fn(r) for r in results] if label_fn else None
+        ys = [r.total_trades() for r in results]
+
+        ax.bar(x=range(len(ys)), height=ys, color="green", tick_label=xs)
+        plt.setp(fig.axes[0].get_xticklabels(), fontsize=10, rotation='vertical')
+
+    @classmethod
+    def oos_return_drawdown_bar_graph(cls, fig, ax, wfa_results):
+        """Graph individual OOS test metrics over time, see evolution. Followed example of
+        https://matplotlib.org/3.1.1/gallery/lines_bars_and_markers/barchart.html
+        """
+        labels = [oos_result.test.start.date() for (_, oos_result) in wfa_results]
+        tr = [oos_result.total_return() for (_, oos_result) in wfa_results]
+        dd = [oos_result.drawdown() for (_, oos_result) in wfa_results]
+        x = np.arange(len(labels))
+        width = 0.35
+
+        ax.bar(x - width / 2, tr, width, label="Total Return", color="green")
+        ax.bar(x + width / 2, dd, width, label="Drawdown", color="red")
+        ax.set_xticks(x)
+        ax.set_xticklabels(labels)
+        ax.legend()
+        plt.setp(fig.axes[0].get_xticklabels(), fontsize=10, rotation='vertical')

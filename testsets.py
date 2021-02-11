@@ -312,7 +312,7 @@ class WalkForwardSingle(TestSet):
     the best parameter set according to the ranking provided by the objective function, and then running that
     parameter set over the OOS period
     """
-    logger = logging.getLogger(__name__)
+    logger = logging.getLogger(f"{__name__}.WalkForwardSingle")
 
     # TODO: Consider using relativedelta here
     def __init__(self, opt_start: date, opt_months: int, oos_months: int, param_grid: dict,
@@ -330,7 +330,7 @@ class WalkForwardSingle(TestSet):
         self.params_filter = params_filter
         self.extraneous_params = extraneous_params
 
-        self.opt_tests = []
+        self.opt_tests = {}
         self.oos_test = None
 
     def name(self):
@@ -344,13 +344,16 @@ class WalkForwardSingle(TestSet):
             params["start"] = self.opt_start.isoformat()
             params["end"] = self.opt_end.isoformat()
             name = Test.generate_name(f"wf_{self.opt_months}_{self.oos_months}_opt_{self.opt_start}_{self.opt_end}", params)
+            if name in self.opt_tests:
+                self.logger.info(f"{name} already generated, skipping")
+                continue
             test = Test(name, params, extraneous_params=self.extraneous_params)
-            self.opt_tests.append((test, None))
+            self.opt_tests[name] = (test, None)
             yield test
 
         # Until we get all test results back, no-op
         while True:
-            if all(r is not None for (t, r) in self.opt_tests):
+            if all(r is not None for (t, r) in self.opt_tests.values()):
                 break
             else:
                 yield TestSet.NO_OP
@@ -361,14 +364,12 @@ class WalkForwardSingle(TestSet):
             yield self.oos_test
 
     def on_test_completed(self, results):
-        for (i, (t, r)) in enumerate(self.opt_tests):
-            if not r and t == results.test or t.params == results.test.params:
-                self.opt_tests[i] = (t, results)
+        self.opt_tests[results.test.name] = (results.test, results)
 
     def generate_oos_test(self):
-        obj_values = [self.objective_fn(r) for (t, r) in self.opt_tests]
-        best = max((r for (t, r) in self.opt_tests), key=self.objective_fn)
-        self.logger.info(f"obj_values={obj_values} max={max(obj_values)}")
+        obj_values = [self.objective_fn(r) for (t, r) in self.opt_tests.values()]
+        best = max((r for (t, r) in self.opt_tests.values()), key=self.objective_fn)
+        self.logger.info(f"max={max(obj_values)} obj_values={obj_values}")
         params = copy.deepcopy(best.test.params)
         params["start"] = self.oos_start.isoformat()
         params["end"] = self.oos_end.isoformat()

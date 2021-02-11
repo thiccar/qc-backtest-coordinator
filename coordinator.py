@@ -157,10 +157,11 @@ class Coordinator:
         existing_test = next((t for t in self.tests if t.name == test.name), None)
         if existing_test:
             self.logger.info(f"{test.name} is a duplicate")
+            return existing_test
         else:
             self.logger.info(f"New generated test {test.name}")
             self.tests.append(test)
-        return test
+            return test
 
     def launch_test(self, test):
         """update parameters file, compile, and launch backtest"""

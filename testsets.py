@@ -91,6 +91,16 @@ class TestResultValidationException(Exception):
 class TestResult:
 
     required_keys = ["alphaRuntimeStatistics", "runtimeStatistics", "statistics", "totalPerformance"]
+    runtime_statistics_required_keys = ["Equity", "Net Profit", "Return"]
+    statistics_required_keys = ["Total Trades", "Drawdown", "Win Rate", "Compounding Annual Return", "Sharpe Ratio",
+                                "Probabilistic Sharpe Ratio"]
+    total_performance_required_keys = ["TradeStatistics"]
+    trade_statistics_required_keys = ["NumberOfWinningTrades", "NumberOfLosingTrades", "AverageProfit", "AverageLoss"]
+
+    # All properties in AlphaRuntimeStatistics.cs have [JsonProperty(DefaultValueHandling = DefaultValueHandling.Ignore)]
+    # annotation, see https://github.com/QuantConnect/Lean/blob/47b5178c0b486ab36507249733adb9b66a9289b7/Common/AlphaRuntimeStatistics.cs
+    # This means that they will not be returned if value is 0 so we can't treat them being missing as an error.
+    alpha_runtime_statistics_required_keys = []  # ["ReturnOverMaxDrawdown", "SortinoRatio"]
 
     def __init__(self, test: Test, bt_result: dict):
         self.test = test
@@ -99,12 +109,19 @@ class TestResult:
         self.bt_result = bt_result
         self.runtime_statistics = bt_result["runtimeStatistics"]
         self.statistics = bt_result["statistics"]
-        self.alpha_runtime_statistics = bt_result["alphaRuntimeStatistics"]
         self.trade_statistics = bt_result["totalPerformance"]["TradeStatistics"]
+        self.alpha_runtime_statistics = bt_result["alphaRuntimeStatistics"]
 
     @classmethod
     def validate_backtest_results(cls, bt_result):
-        return all((key in bt_result and bt_result[key]) for key in cls.required_keys)
+        return all([
+            all(bt_result.get(k, None) for k in cls.required_keys),
+            all(bt_result["alphaRuntimeStatistics"].get(k, None) for k in cls.alpha_runtime_statistics_required_keys),
+            all(bt_result["runtimeStatistics"].get(k, None) for k in cls.runtime_statistics_required_keys),
+            all(bt_result["statistics"].get(k, None) for k in cls.statistics_required_keys),
+            all(bt_result["totalPerformance"].get(k, None) for k in cls.total_performance_required_keys),
+            all(bt_result["totalPerformance"]["TradeStatistics"].get(k, None) for k in cls.trade_statistics_required_keys),
+        ])
 
     def to_dict(self) -> dict:
         return {"test": self.test.to_dict(), "backtest": self.bt_result}
@@ -147,7 +164,7 @@ class TestResult:
         return self.parse_percent(self.statistics["Drawdown"])
 
     def annualized_return_over_max_drawdown(self):
-        return Decimal(self.alpha_runtime_statistics["ReturnOverMaxDrawdown"])
+        return Decimal(self.alpha_runtime_statistics.get("ReturnOverMaxDrawdown", 0))
 
     def win_rate(self):
         return self.parse_percent(self.statistics["Win Rate"])
@@ -159,7 +176,7 @@ class TestResult:
         return self.parse_percent(self.runtime_statistics["Return"])
 
     def sortino_ratio(self):
-        return Decimal(self.alpha_runtime_statistics["SortinoRatio"])
+        return Decimal(self.alpha_runtime_statistics.get("SortinoRatio", 0))
 
     def sharpe_ratio(self):
         return Decimal(self.statistics["Sharpe Ratio"])

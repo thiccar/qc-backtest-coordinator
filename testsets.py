@@ -97,8 +97,9 @@ class TestResult:
     total_performance_required_keys = ["TradeStatistics"]
     trade_statistics_required_keys = ["NumberOfWinningTrades", "NumberOfLosingTrades", "AverageProfit", "AverageLoss"]
 
-    # All properties in AlphaRuntimeStatistics.cs have [JsonProperty(DefaultValueHandling = DefaultValueHandling.Ignore)]
-    # annotation, see https://github.com/QuantConnect/Lean/blob/47b5178c0b486ab36507249733adb9b66a9289b7/Common/AlphaRuntimeStatistics.cs
+    # All properties in AlphaRuntimeStatistics.cs have JsonProperty(DefaultValueHandling = DefaultValueHandling.Ignore)
+    # annotation
+    # https://github.com/QuantConnect/Lean/blob/47b5178c0b486ab36507249733adb9b66a9289b7/Common/AlphaRuntimeStatistics.cs
     # This means that they will not be returned if value is 0 so we can't treat them being missing as an error.
     alpha_runtime_statistics_required_keys = []  # ["ReturnOverMaxDrawdown", "SortinoRatio"]
 
@@ -115,12 +116,12 @@ class TestResult:
     @classmethod
     def validate_backtest_results(cls, bt_result):
         return (
-            all(bt_result.get(k, None) for k in cls.required_keys) and
-            all(bt_result["alphaRuntimeStatistics"].get(k, None) for k in cls.alpha_runtime_statistics_required_keys) and
-            all(bt_result["runtimeStatistics"].get(k, None) for k in cls.runtime_statistics_required_keys) and
-            all(bt_result["statistics"].get(k, None) for k in cls.statistics_required_keys) and
-            all(bt_result["totalPerformance"].get(k, None) for k in cls.total_performance_required_keys) and
-            all(bt_result["totalPerformance"]["TradeStatistics"].get(k, None) for k in cls.trade_statistics_required_keys)
+            all(isinstance(bt_result.get(k), dict) for k in cls.required_keys) and
+            all(k in bt_result["alphaRuntimeStatistics"] for k in cls.alpha_runtime_statistics_required_keys) and
+            all(k in bt_result["runtimeStatistics"] for k in cls.runtime_statistics_required_keys) and
+            all(k in bt_result["statistics"] for k in cls.statistics_required_keys) and
+            all(k in bt_result["totalPerformance"] for k in cls.total_performance_required_keys) and
+            all(k in bt_result["totalPerformance"]["TradeStatistics"] for k in cls.trade_statistics_required_keys)
         )
 
     def to_dict(self) -> dict:

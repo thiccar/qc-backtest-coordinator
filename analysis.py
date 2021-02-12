@@ -264,3 +264,37 @@ class Analysis:
         ax.set_xticklabels(labels)
         ax.legend()
         plt.setp(fig.axes[0].get_xticklabels(), fontsize=10, rotation='vertical')
+
+    @classmethod
+    def wfa_equity_curve_plot(cls, fig, ax, wfa_results, oos_combined, label=""):
+        """Graph equity curve stitched together from individual OOS tests.  NOTE: It may look like the stitched curve
+        starts later than the single curve, that is because they perfectly overlap for the duration of the first OOS
+        test.
+        """
+        combined_xs, combined_ys = cls.stitch_oos_equity_curve(wfa_results)
+
+        ax.plot(combined_xs, combined_ys, label=f"{label}_stitched" if label else "stitched")
+        ax.set_yscale("log")
+
+        if oos_combined:
+            print(f"Combined: Duration = {oos_combined.duration()} Total Return = {oos_combined.total_return()} "
+                  f"Annualized Return = {oos_combined.compounding_annual_return()}")
+            e = oos_combined.bt_result["charts"]["Strategy Equity"]["Series"]["Equity"]["Values"]
+            xs = [datetime.fromtimestamp(v["x"]) for v in e]
+            ys = [v["y"] for v in e]
+            ax.plot(xs, ys, label=f"{label}_continuous" if label else "continuous")
+        ax.legend()
+
+    @classmethod
+    def wfa_params_plot(cls, fig, wfa_results):
+        """Graph change in parameters used"""
+
+        params_keys = list(k for k in wfa_results[0][1].test.params.keys() if k not in ["start", "end"])
+        xs = [oos_result.test.start for (_, oos_result) in wfa_results]
+        axs = fig.subplots(len(params_keys), 1)
+        #for (i, key) in enumerate(params_keys):
+        for (ax, key) in zip(axs, params_keys):
+            #ax = fig.add_subplot(i+1, 1, i+1)
+            ys = [oos_result.test.params[key] for (_, oos_result) in wfa_results]
+            ax.plot(xs, ys, label=key)
+            ax.set_title(key)

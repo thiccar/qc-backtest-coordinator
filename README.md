@@ -5,3 +5,4 @@ Packages required beyond base anaconda:
 - backoff
 - tabulate
 - dictdiffer
+- coolname

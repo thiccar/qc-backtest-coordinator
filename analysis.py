@@ -156,7 +156,7 @@ class Analysis:
         """Return a formatted table with WFA summary statistics a la Pardo (see https://pasteboard.co/JMmVgHk.png)"""
         headers = ["", "Opt\nStart", "Opt\nEnd", "Best Opt P/L\nAnnualized", "Best Opt\nMax Drawdown", "OOS\nStart",
                    "OOS\nEnd", "Net P/L", "Net P/L\nAnnualized", "Max\nDrawdown", "ROMAD\nAnnualized", "Win %",
-                   "Walk-Forward\nEfficiency"]
+                   "Walk-Forward\nEfficiency", "Sharpe\nRatio", "PSR"]
         table = []
         for (opt_results, oos_result) in wfa_results:
             best_opt = max(opt_results, key=objective_fn)
@@ -174,6 +174,8 @@ class Analysis:
                 oos_result.annualized_return_over_max_drawdown(),
                 oos_result.win_rate(),
                 oos_result.annualized_net_profit() / best_opt.annualized_net_profit(),
+                oos_result.sharpe_ratio(),
+                oos_result.probabilistic_sharpe_ratio(),
             ]
             table.append(row)
 
@@ -190,6 +192,8 @@ class Analysis:
             statistics.mean(r[10] for r in table),
             statistics.mean(r[11] for r in table),
             statistics.mean(r[12] for r in table),
+            statistics.mean(r[13] for r in table),
+            statistics.mean(r[14] for r in table),
         ]
         table.append(summary)
 
@@ -205,6 +209,8 @@ class Analysis:
                 oos_combined.annualized_return_over_max_drawdown(),
                 oos_combined.win_rate(),
                 oos_combined.annualized_net_profit() / mean_opt_annualized_pl,
+                oos_combined.sharpe_ratio(),
+                oos_combined.probabilistic_sharpe_ratio(),
             ]
             table.append(combined)
         return tabulate(table, headers=headers, numalign="right", floatfmt=",.2f")

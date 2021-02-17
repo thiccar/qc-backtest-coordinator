@@ -114,14 +114,14 @@ class TestResult:
 
     @classmethod
     def validate_backtest_results(cls, bt_result):
-        return all([
-            all(bt_result.get(k, None) for k in cls.required_keys),
-            all(bt_result["alphaRuntimeStatistics"].get(k, None) for k in cls.alpha_runtime_statistics_required_keys),
-            all(bt_result["runtimeStatistics"].get(k, None) for k in cls.runtime_statistics_required_keys),
-            all(bt_result["statistics"].get(k, None) for k in cls.statistics_required_keys),
-            all(bt_result["totalPerformance"].get(k, None) for k in cls.total_performance_required_keys),
-            all(bt_result["totalPerformance"]["TradeStatistics"].get(k, None) for k in cls.trade_statistics_required_keys),
-        ])
+        return (
+            all(bt_result.get(k, None) for k in cls.required_keys) and
+            all(bt_result["alphaRuntimeStatistics"].get(k, None) for k in cls.alpha_runtime_statistics_required_keys) and
+            all(bt_result["runtimeStatistics"].get(k, None) for k in cls.runtime_statistics_required_keys) and
+            all(bt_result["statistics"].get(k, None) for k in cls.statistics_required_keys) and
+            all(bt_result["totalPerformance"].get(k, None) for k in cls.total_performance_required_keys) and
+            all(bt_result["totalPerformance"]["TradeStatistics"].get(k, None) for k in cls.trade_statistics_required_keys)
+        )
 
     def to_dict(self) -> dict:
         return {"test": self.test.to_dict(), "backtest": self.bt_result}

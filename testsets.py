@@ -232,9 +232,10 @@ class TestSet(ABC):
 
 class MultiPeriod(TestSet):
     """Exercise the algorithm with a constant set of parameters over a range of time periods"""
-    def __init__(self, periods: list, params: dict):
+    def __init__(self, periods: list, params: dict, extraneous_params=None):
         self.periods = periods
         self.params = params
+        self.extraneous_params = extraneous_params
 
     def name(self):
         start = self.periods[0][0]
@@ -248,30 +249,30 @@ class MultiPeriod(TestSet):
             params["start"] = start.isoformat()
             params["end"] = end.isoformat()
             name = Test.generate_name(f"mp_{start.isoformat()}_{end.isoformat()}", params)
-            test = Test(name, params)
+            test = Test(name, params, extraneous_params=self.extraneous_params)
             yield test
 
 
 class MultiPeriodYearly(MultiPeriod):
-    def __init__(self, start_year: int, years: int, params: dict):
+    def __init__(self, start_year: int, years: int, params: dict, extraneous_params=None):
         periods = []
         for i in range(start_year, start_year + years):
             start = date(i, 1, 1)
             end = start.replace(year=start.year + 1) - timedelta(days=1)
             periods.append((start, end))
-        super().__init__(periods, params)
+        super().__init__(periods, params, extraneous_params=None)
 
 
 class MultiPeriodInterval(MultiPeriod):
     """Exercise the algorithm with a constant set of parameters over a range of time periods"""
-    def __init__(self, start: date, end: date, intervals: int, params: dict):
+    def __init__(self, start: date, end: date, intervals: int, params: dict, extraneous_params=None):
         interval = (end - start) / intervals
         periods = []
         for i in range(0, intervals):
             end = start + interval
             periods.append((start, end))
             start = end + timedelta(days=1)
-        super().__init__(periods, params)
+        super().__init__(periods, params, extraneous_params=None)
 
 
 class ParamSignificance(TestSet):

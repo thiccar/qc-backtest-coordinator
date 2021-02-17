@@ -44,7 +44,7 @@ class Analysis:
         for result in self.results():
             stats = result.bt_result["statistics"]
             for k in ["SortinoRatio", "ReturnOverMaxDrawdown"]:
-                stats[k] = result.bt_result["alphaRuntimeStatistics"][k]
+                stats[k] = result.bt_result["alphaRuntimeStatistics"].get(k, 0)
             stats["PROE"] = result.proe()
             rows.append((result.test, stats))
 

@@ -44,15 +44,14 @@ class RateLimitedApi(Api):
         project_list = self.list_projects()
         return next((p for p in project_list["projects"] if p["name"] == name), None)
 
-    def update_parameters_file(self, project_id, parameters, extraneous_parameters=None):
-        """returns True or False indicating success"""
-        # Get the file
+    def read_parameters_file(self, project_id):
         file_resp = self.read_project_file(project_id, "parameters.py")
-        if not file_resp["success"]:
-            logger.error(f"read_project_file error {file_resp}")
-            return False
+        if file_resp["success"]:
+            return file_resp["files"][0]["content"]
+        else:
+            return None
 
-        # Update the content
+    def update_parameters_file(self, project_id, file_content, parameters, extraneous_parameters=None):
         def update_line(line):
             if line.find("_parametersJson =") >= 0:
                 parameters_json = json.dumps(parameters)
@@ -63,10 +62,9 @@ class RateLimitedApi(Api):
             else:
                 return line
 
-        file_content = file_resp["files"][0]["content"]
         lines = file_content.split("\n")
         new_lines = [update_line(line) for line in lines]
-    
+
         # Save the new file to server
         update_resp = self.update_project_file_content(project_id, "parameters.py", "\n".join(new_lines))
         if not update_resp["success"]:

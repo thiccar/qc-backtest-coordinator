@@ -21,6 +21,7 @@ class Coordinator:
         self.cio = None
         self.project = None
         self.project_id = None
+        self.initial_parameters_file = None
         self.generator_done = False
         self.generated_cnt = 0
         self.tests = []  # Stores every test produced by the generator. Gets backed up to disk so we don't lose anything
@@ -42,6 +43,9 @@ class Coordinator:
         file_handler = logging.FileHandler(self.cio.log_path)
         file_handler.setFormatter(root_logger.handlers[0].formatter)
         root_logger.addHandler(file_handler)
+
+        self.initial_parameters_file = self.api.read_parameters_file(self.project_id)
+        assert self.initial_parameters_file
             
         self.load_state()
     
@@ -165,7 +169,8 @@ class Coordinator:
 
     def launch_test(self, test):
         """update parameters file, compile, and launch backtest"""
-        if not self.api.update_parameters_file(self.project_id, test.params, test.extraneous_params):
+        if not self.api.update_parameters_file(self.project_id, self.initial_parameters_file, test.params,
+                                               test.extraneous_params):
             self.logger.error(f"{test.name} update_parameters_file failed")
             return
 

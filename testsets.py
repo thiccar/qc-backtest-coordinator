@@ -412,7 +412,7 @@ class WalkForwardMultiple(TestSet):
         self.extraneous_params = extraneous_params
 
         self.walk_forwards = self.sub_tests()
-        self.oos_test = None
+        self.oos_tests = None
 
     def name(self):
         return f"wf_{self.opt_months}_{self.oos_months}_{self.start.isoformat()}_{self.end.isoformat()}"
@@ -424,7 +424,8 @@ class WalkForwardMultiple(TestSet):
         for wf in self.walk_forwards:
             for test in wf.tests():
                 # Because a multi-step walk forward analysis produces so many tests, set a higher log level on each of
-                # the sub-tests since they are short and can be re-run quickly to debug issues.
+                # the sub-tests since they are short and can be re-run quickly to debug issues.  This helps avoid eating
+                # into QC's daily log budget.
                 if test != self.NO_OP:
                     test.extraneous_params["logLevel"] = "INFO"
                 yield test
@@ -432,18 +433,32 @@ class WalkForwardMultiple(TestSet):
                              f" oos={wf.oos_start} - {wf.oos_end}")
 
         self.logger.info("Launching combined oos backtest")
-        self.oos_test = self.generate_oos_test()
-        yield self.oos_test
+        self.oos_tests = self.generate_oos_tests()
+        for test in self.oos_tests:
+            yield test
 
-    def generate_oos_test(self):
-        params_list = [wf.oos_test.params for wf in self.walk_forwards]
+    def generate_oos_tests(self):
+        """Run backtest over the entire OOS period covered by the walk forward analysis, using the same parameters
+        for each individual walk forward's OOS.  This will help reveal if/where the strategy runs into issues with
+        a growing capital base.  Also run a test with margin interest and tax modeling enabled, to give us a more
+        realistic sense of real-world returns.
+        """
+        params_list = [copy.deepcopy(wf.oos_test.params) for wf in self.walk_forwards]
         start = params_list[0]["start"]
         end = params_list[-1]["end"]
-        name = Test.generate_name(f"wf_{self.opt_months}_{self.oos_months}_oos_{start}_{end}", params_list)
 
         # The combined OOS test takes a long time to run so we leave debug logging on for it
         loglevel = {"logLevel": "DEBUG"}
-        return Test(name, params_list, extraneous_params={**self.extraneous_params, **loglevel})
+
+        combined_name = Test.generate_name(f"wf_{self.opt_months}_{self.oos_months}_oos_{start}_{end}", params_list)
+        combined = Test(combined_name, params_list, extraneous_params={**self.extraneous_params, **loglevel})
+
+        combined_mt_name = Test.generate_name(f"wf_{self.opt_months}_{self.oos_months}_oosmt_{start}_{end}", params_list)
+        mt_extraneous = {"margin": {"rate": 0.01}, "tax": {"rate": 0.4}}
+        combined_mt = Test(combined_mt_name, params_list,
+                           extraneous_params={**self.extraneous_params, **loglevel, **mt_extraneous})
+
+        return [combined, combined_mt]
 
     def sub_tests(self):
         sub = []
@@ -458,8 +473,10 @@ class WalkForwardMultiple(TestSet):
         return sub
 
     def on_test_completed(self, results):
-        if self.oos_test and (results.test == self.oos_test or results.test.params == self.oos_test.params):
-            return
+        if self.oos_tests:
+            if any(results.test == oos_test or results.test.params == oos_test.params for oos_test in self.oos_tests):
+                return
+
         for wf in self.walk_forwards:
             # Implicit assumption here is that opt window size and oos window size are different (one of the reasons
             # for the assert statement in constructor).

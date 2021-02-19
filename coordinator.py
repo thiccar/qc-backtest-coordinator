@@ -127,6 +127,8 @@ class Coordinator:
                         self.logger.info("no-op test")
                         break
 
+                    # Bug: If we have launched a test in this loop, and the generator returns the same test (i.e. because
+                    # we had run the program before and
                     self.update_test_state(test)
                     if test.state != TestState.CREATED:
                         self.logger.info(f"{test.name} was previously launched")
@@ -151,21 +153,22 @@ class Coordinator:
         if test:
             self.logger.info(f"Returning queued test {test.name}")
             return test
-        
-        test = next(generator, None)
-        if not test or test == TestSet.NO_OP:
-            return test
 
-        self.generated_cnt += 1
-        # Tests have deterministic naming, so the generator may have emitted this test previously
-        existing_test = next((t for t in self.tests if t.name == test.name), None)
-        if existing_test:
-            self.logger.info(f"{test.name} is a duplicate")
-            return existing_test
-        else:
-            self.logger.info(f"New generated test {test.name}")
-            self.tests.append(test)
-            return test
+        while True:
+            test = next(generator, None)
+            if not test or test == TestSet.NO_OP:
+                return test
+
+            self.generated_cnt += 1
+            # Tests have deterministic naming, so the generator may have emitted this test previously
+            existing_test = next((t for t in self.tests if t.name == test.name), None)
+            if existing_test:
+                self.logger.info(f"{test.name} is a duplicate, skipping")
+                continue
+            else:
+                self.logger.info(f"New generated test {test.name}")
+                self.tests.append(test)
+                return test
 
     def launch_test(self, test):
         """update parameters file, compile, and launch backtest"""

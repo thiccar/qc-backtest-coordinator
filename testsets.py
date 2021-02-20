@@ -246,11 +246,11 @@ class MultiPeriod(TestSet):
         return f"mp_{start.isoformat()}_{end.isoformat()}"
 
     def tests(self):
-        for (start, end) in self.periods:
+        for (i, (start, end)) in enumerate(self.periods):
             params = copy.deepcopy(self.params)
             params["start"] = start.isoformat()
             params["end"] = end.isoformat()
-            name = Test.generate_name(f"mp_{start.isoformat()}_{end.isoformat()}", params)
+            name = Test.generate_name(f"{format(i, '02d')}_{start.isoformat()}_{end.isoformat()}", params)
             test = Test(name, params, extraneous_params=self.extraneous_params)
             yield test
 
@@ -317,14 +317,16 @@ class GridSearch(TestSet):
         return f"gs_{start.isoformat()}_{end.isoformat()}"
 
     def tests(self):
+        num = 0
         for (start, end) in self.periods:
             for params in ParameterGrid(self.param_grid):
                 if not self.params_filter or self.params_filter(params):
                     params["start"] = start.isoformat()
                     params["end"] = end.isoformat()
-                    name = Test.generate_name(f"gs_{start.isoformat()}_{end.isoformat()}", params)
+                    name = Test.generate_name(f"{format(num, '05d')}_{start.isoformat()}_{end.isoformat()}", params)
                     test = Test(name, params, extraneous_params=self.extraneous_params)
                     yield test
+                    num += 1
 
 
 class WalkForwardSingle(TestSet):

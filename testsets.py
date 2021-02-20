@@ -65,6 +65,7 @@ class Test:
         self.state = state
         self.extraneous_params = extraneous_params
 
+        self.compile_id = None
         self.read_backtest_attempts = 0
         self.result_saved = False
         self.log_saved = False

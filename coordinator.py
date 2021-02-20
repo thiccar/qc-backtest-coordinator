@@ -172,19 +172,20 @@ class Coordinator:
 
     def launch_test(self, test):
         """update parameters file, compile, and launch backtest"""
-        if not self.api.update_parameters_file(self.project_id, self.initial_parameters_file, test.params,
-                                               test.extraneous_params):
-            self.logger.error(f"{test.name} update_parameters_file failed")
-            return
+        if not test.compile_id:
+            if not self.api.update_parameters_file(self.project_id, self.initial_parameters_file, test.params,
+                                                   test.extraneous_params):
+                self.logger.error(f"{test.name} update_parameters_file failed")
+                return
 
-        compile_id = self.api.compile(self.project_id)
-        if not compile_id:
-            self.logger.error(f"{test.name} compile failed")
-            return
+            compile_id = self.api.compile(self.project_id)
+            if not compile_id:
+                self.logger.error(f"{test.name} compile failed")
+                return
+            test.compile_id = compile_id
         
-        create_backtest_resp = self.api.create_backtest(self.project_id, compile_id, test.name)
+        create_backtest_resp = self.api.create_backtest(self.project_id, test.compile_id, test.name)
         if not create_backtest_resp["success"]:
-
             self.logger.error(f"{test.name} create_backtest failed")
             self.logger.error(create_backtest_resp)
         else:

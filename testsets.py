@@ -226,6 +226,7 @@ class TestSet(ABC):
     
     @abstractmethod
     def tests(self):
+        """Return a generator that yields Test objects"""
         pass
     
     def on_test_completed(self, results: TestResult):
@@ -245,7 +246,6 @@ class MultiPeriod(TestSet):
         return f"mp_{start.isoformat()}_{end.isoformat()}"
 
     def tests(self):
-        """Return a generator that yields Test objects"""
         for (start, end) in self.periods:
             params = copy.deepcopy(self.params)
             params["start"] = start.isoformat()

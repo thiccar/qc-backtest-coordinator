@@ -118,13 +118,19 @@ class Analysis:
         neg_returns = [r for r in returns if r <= 0]
 
         headers = ["", "Number", "Percentage", "Average Annual Return", "Std Dev", "Max", "Min"]
+        pos_returns_row = ["Profitable tests", len(pos_returns), len(pos_returns) / len(results)]
+        if pos_returns:
+            pos_returns_row.extend([statistics.mean(pos_returns), statistics.pstdev(pos_returns),
+                                    max(pos_returns), min(pos_returns)])
+        neg_returns_row = ["Losing tests", len(neg_returns), len(neg_returns) / len(results)]
+        if neg_returns:
+            neg_returns_row.extend([statistics.mean(neg_returns), statistics.pstdev(neg_returns),
+                                    max(neg_returns), min(neg_returns)])
         table = [
             ["Number of tests", len(results), 1, statistics.mean(returns), statistics.pstdev(returns), max(returns),
              min(returns)],
-            ["Profitable tests", len(pos_returns), len(pos_returns) / len(results), statistics.mean(pos_returns),
-             statistics.pstdev(pos_returns), max(pos_returns), min(pos_returns)],
-            ["Losing tests", len(neg_returns), len(neg_returns) / len(results), statistics.mean(neg_returns),
-             statistics.pstdev(neg_returns), max(neg_returns), min(neg_returns)],
+            pos_returns_row,
+            neg_returns_row,
         ]
         return tabulate(table, headers=headers)
 

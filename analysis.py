@@ -9,6 +9,7 @@ import statistics
 
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 from tabulate import tabulate
 
 from coordinator_io import CoordinatorIO
@@ -282,6 +283,32 @@ class Analysis:
         ax.legend()
         plt.setp(fig.axes[0].get_xticklabels(), fontsize=10, rotation='vertical')
 
+    @classmethod
+    def wfa_oos_top_btm_days(cls, oos_results, n=10):
+        top = []
+        btm = []
+        for result in oos_results:
+            df = pd.DataFrame(result.bt_result["charts"]["Strategy Equity"]["Series"]["Equity"]["Values"])
+            df["ts"] = pd.to_datetime(df["x"], unit="s").apply(
+                lambda ts: ts.tz_localize("UTC").tz_convert("America/New_York"))
+            r = df.resample("D", on="ts").last()
+            r["prev_y"] = r.shift(1)["y"]
+            r.dropna(inplace=True)
+            r["daily_return"] = r["y"] / r["prev_y"]
+            for tup in r.itertuples():
+                d = tup._asdict()
+                d["test"] = result.test.name
+
+                top.append(d)
+                top.sort(key=lambda x: x["daily_return"], reverse=True)
+                top = top[:n]
+
+                btm.append(d)
+                btm.sort(key=lambda x: x["daily_return"])
+                btm = btm[:n]
+
+        return top, btm
+
     def wfa_oos_top_btm_trades(self, n=10):
         """Number of trades across all backtests can be very large, so we usually don't load them into the result
         objects we keep in memory.  So this method goes back over the test results in directory and looks at all
@@ -312,9 +339,9 @@ class Analysis:
         return top, btm
 
     @classmethod
-    def tabulate_trades(cls, trades):
-        header = trades[0].keys()
-        rows = [[t[k] for k in header] for t in trades]
+    def tabulate_dicts(cls, dicts):
+        header = dicts[0].keys()
+        rows = [[t[k] for k in header] for t in dicts]
         return tabulate(rows, headers=header, numalign="right", floatfmt=",.2f")
 
     @classmethod

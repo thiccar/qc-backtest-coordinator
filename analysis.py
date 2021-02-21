@@ -282,6 +282,41 @@ class Analysis:
         ax.legend()
         plt.setp(fig.axes[0].get_xticklabels(), fontsize=10, rotation='vertical')
 
+    def wfa_oos_top_btm_trades(self, n=10):
+        """Number of trades across all backtests can be very large, so we usually don't load them into the result
+        objects we keep in memory.  So this method goes back over the test results in directory and looks at all
+        trades to find best and worst ones.
+        Right now this is not too useful because many of the top and bottom trades by profit/loss are wrongly
+        calculated, see https://github.com/QuantConnect/Lean/issues/5325
+        """
+        top = []
+        btm = []
+        for test in self.tests():
+            # Allows us to run this while backtests are running to see intermediate results
+            if test.state == TestState.RUNNING:
+                continue
+            if "_oos_" not in test.name:
+                continue
+
+            result = self.cio.read_test_result(test)
+            for trade in result.closed_trades:
+                trade["test"] = result.test.name
+                top.append(trade)
+                top.sort(key=lambda t: t["ProfitLoss"], reverse=True)
+                top = top[:n]
+
+                btm.append(trade)
+                btm.sort(key=lambda t: t["ProfitLoss"])
+                btm = btm[:n]
+
+        return top, btm
+
+    @classmethod
+    def tabulate_trades(cls, trades):
+        header = trades[0].keys()
+        rows = [[t[k] for k in header] for t in trades]
+        return tabulate(rows, headers=header, numalign="right", floatfmt=",.2f")
+
     @classmethod
     def wfa_equity_curve_plot(cls, fig, ax, wfa_results, oos_combined, label=""):
         """Graph equity curve stitched together from individual OOS tests.  NOTE: It may look like the stitched curve

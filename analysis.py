@@ -39,17 +39,22 @@ class Analysis:
                 result.bt_result = useful
             yield result
 
+    @classmethod
+    def all_params_keys(cls, results):
+        return functools.reduce(
+            lambda s1, s2: s1 | s2, (set(r.test.params.keys()) for r in results if isinstance(r.test.params, dict)))
+
     def generate_csv_report(self):
         rows = []
-        for result in self.results():
+        results = self.results()
+        for result in results:
             stats = result.bt_result["statistics"]
             for k in ["SortinoRatio", "ReturnOverMaxDrawdown"]:
                 stats[k] = result.bt_result["alphaRuntimeStatistics"].get(k, 0)
             stats["PROE"] = result.proe()
             rows.append((result.test, stats))
 
-        params_keys = functools.reduce(lambda s1, s2: s1 | s2,
-                                       (set(t.params.keys()) for (t, _) in rows if isinstance(t.params, dict)))
+        params_keys = self.all_params_keys(results)
         result_keys = functools.reduce(lambda s1, s2: s1 | s2, (set(s.keys()) for (_, s) in rows))
         field_names = ["name"] + list(params_keys) + list(result_keys)
         # https://stackoverflow.com/questions/3348460/csv-file-written-with-python-has-blank-lines-between-each-row

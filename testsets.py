@@ -365,7 +365,10 @@ class WalkForwardSingle(TestSet):
                 continue
             params["start"] = self.opt_start.isoformat()
             params["end"] = self.opt_end.isoformat()
-            name = Test.generate_name(f"wf_{self.opt_months}_{self.oos_months}_opt_{self.opt_start}_{self.opt_end}", params)
+            num = format(len(self.opt_tests), '04d')
+            name = Test.generate_name(
+                f"{num}_{self.opt_months}_{self.oos_months}_opt_{self.opt_start}_{self.opt_end}",
+                params)
             if name in self.opt_tests:
                 self.logger.info(f"{name} already generated, skipping")
                 continue
@@ -395,7 +398,10 @@ class WalkForwardSingle(TestSet):
         params = copy.deepcopy(best.test.params)
         params["start"] = self.oos_start.isoformat()
         params["end"] = self.oos_end.isoformat()
-        name = Test.generate_name(f"wf_{self.opt_months}_{self.oos_months}_oos_{self.oos_start}_{self.oos_end}", params)
+        num = format(len(self.opt_tests), '04d')
+        name = Test.generate_name(
+            f"{num}_{self.opt_months}_{self.oos_months}_oos_{self.oos_start}_{self.oos_end}",
+            params)
         return Test(name, params, extraneous_params=self.extraneous_params)
 
 

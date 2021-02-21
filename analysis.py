@@ -46,7 +46,7 @@ class Analysis:
 
     def generate_csv_report(self):
         rows = []
-        results = self.results()
+        results = list(self.results(only_keep_useful=True))
         for result in results:
             stats = result.bt_result["statistics"]
             for k in ["SortinoRatio", "ReturnOverMaxDrawdown"]:

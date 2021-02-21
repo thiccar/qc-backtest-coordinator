@@ -95,7 +95,7 @@ class TestResult:
     runtime_statistics_required_keys = ["Equity", "Net Profit", "Return"]
     statistics_required_keys = ["Total Trades", "Drawdown", "Win Rate", "Compounding Annual Return", "Sharpe Ratio",
                                 "Probabilistic Sharpe Ratio"]
-    total_performance_required_keys = ["TradeStatistics"]
+    total_performance_required_keys = ["TradeStatistics", "ClosedTrades"]
     trade_statistics_required_keys = ["NumberOfWinningTrades", "NumberOfLosingTrades", "AverageProfit", "AverageLoss"]
 
     # All properties in AlphaRuntimeStatistics.cs have JsonProperty(DefaultValueHandling = DefaultValueHandling.Ignore)
@@ -112,6 +112,7 @@ class TestResult:
         self.runtime_statistics = bt_result["runtimeStatistics"]
         self.statistics = bt_result["statistics"]
         self.trade_statistics = bt_result["totalPerformance"]["TradeStatistics"]
+        self.closed_trades = bt_result["totalPerformance"]["ClosedTrades"]
         self.alpha_runtime_statistics = bt_result["alphaRuntimeStatistics"]
 
     @classmethod

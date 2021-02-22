@@ -126,8 +126,6 @@ class Coordinator:
                         self.logger.info("no-op test")
                         break
 
-                    # Bug: If we have launched a test in this loop, and the generator returns the same test (i.e. because
-                    # we had run the program before and
                     self.update_test_state(test)
                     if test.state != TestState.CREATED:
                         self.logger.info(f"{test.name} was previously launched")

@@ -117,10 +117,9 @@ class Coordinator:
                 limit = concurrency - self.state_counter[TestState.RUNNING]
                 launched = 0
                 self.logger.debug(f"Launching up to {limit} new tests")
-                while launched < limit and not self.generator_done:
+                while launched < limit and (self.state_counter[TestState.CREATED] or not self.generator_done):
                     test = self.get_next_test(test_generator)
                     if test is None:
-                        self.logger.info("generator done")
                         self.generator_done = True
                         break
                     if test == TestSet.NO_OP:

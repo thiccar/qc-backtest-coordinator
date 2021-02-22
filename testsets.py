@@ -306,9 +306,9 @@ class ParamSignificance(TestSet):
 
 
 class GridSearch(TestSet):
-    def __init__(self, periods: list, param_grid: dict, params_filter=None, extraneous_params=None):
+    def __init__(self, periods: list, param_grids: list, params_filter=None, extraneous_params=None):
         self.periods = periods
-        self.param_grid = param_grid
+        self.param_grids = param_grids
         self.params_filter = params_filter
         self.extraneous_params = extraneous_params
 
@@ -320,14 +320,15 @@ class GridSearch(TestSet):
     def tests(self):
         num = 0
         for (start, end) in self.periods:
-            for params in ParameterGrid(self.param_grid):
-                if not self.params_filter or self.params_filter(params):
-                    params["start"] = start.isoformat()
-                    params["end"] = end.isoformat()
-                    name = Test.generate_name(f"{format(num, '05d')}_{start.isoformat()}_{end.isoformat()}", params)
-                    test = Test(name, params, extraneous_params=self.extraneous_params)
-                    yield test
-                    num += 1
+            for param_grid in self.param_grids:
+                for params in ParameterGrid(param_grid):
+                    if not self.params_filter or self.params_filter(params):
+                        params["start"] = start.isoformat()
+                        params["end"] = end.isoformat()
+                        name = Test.generate_name(f"{format(num, '05d')}_{start.isoformat()}_{end.isoformat()}", params)
+                        test = Test(name, params, extraneous_params=self.extraneous_params)
+                        yield test
+                        num += 1
 
 
 class WalkForwardSingle(TestSet):

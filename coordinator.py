@@ -136,8 +136,8 @@ class Coordinator:
                     self.save_state()
                 
                 if launched > 0 or self.state_counter[TestState.RUNNING] > 0 or test == TestSet.NO_OP:
-                    self.logger.info("Sleeping for 5 secs")
-                    sleep(5)
+                    self.logger.info("Sleeping for 15 secs")
+                    sleep(15)
 
             self.save_state()
             self.logger.info("generating report")
@@ -213,10 +213,11 @@ class Coordinator:
                     result = TestResult(test, read_backtest_resp["backtest"])
                     self.cio.write_test_result(result)
         except TestResultValidationException:
-            # Sometimes results aren't available right away, so we have retries here
+            # Sometimes results aren't available right away, so we have retries here.
+            # TODO: Can we do this in a smarter way?
             test.read_backtest_attempts += 1
             self.logger.error(f"{test.name} api result fail validation, attempts={test.read_backtest_attempts}")
-            if test.read_backtest_attempts >= 10:
+            if test.read_backtest_attempts >= 40:
                 # Assume by this point that it will never work, rename it and set state to created so it will be
                 # launched in next loop iteration
                 self.logger.error(f"giving up on read_backtest for {test.name}, will relaunch it")

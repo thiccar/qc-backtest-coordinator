@@ -74,8 +74,8 @@ class Analysis:
 
         # Sort each period results so that the result at the same index has same params
         def params_sort_key(result):
-            keys = sorted(k for k in result.test.params.keys() if k not in ["start", "end"])
-            return list(result.test.params[k] for k in keys)
+            # https://stackoverflow.com/questions/5884066/hashing-a-dictionary
+            return hash(frozenset(item for item in result.test.params.items() if item[0] not in ["start", "end"]))
 
         if sort_by_params:
             for period_results in grouped:

@@ -309,23 +309,11 @@ class Analysis:
 
         return top, btm
 
-    def wfa_oos_top_btm_trades(self, n=10):
-        """Number of trades across all backtests can be very large, so we usually don't load them into the result
-        objects we keep in memory.  So this method goes back over the test results in directory and looks at all
-        trades to find best and worst ones.
-        Right now this is not too useful because many of the top and bottom trades by profit/loss are wrongly
-        calculated, see https://github.com/QuantConnect/Lean/issues/5325
-        """
+    @classmethod
+    def top_btm_trades(cls, results, n=10):
         top = []
         btm = []
-        for test in self.tests():
-            # Allows us to run this while backtests are running to see intermediate results
-            if test.state == TestState.RUNNING:
-                continue
-            if "_oos_" not in test.name:
-                continue
-
-            result = self.cio.read_test_result(test)
+        for result in results:
             for trade in result.closed_trades:
                 trade["test"] = result.test.name
                 top.append(trade)
@@ -337,6 +325,25 @@ class Analysis:
                 btm = btm[:n]
 
         return top, btm
+
+    def wfa_oos_top_btm_trades(self, n=10):
+        """Number of trades across all backtests can be very large, so we usually don't load them into the result
+        objects we keep in memory.  So this method goes back over the test results in directory and looks at all
+        trades to find best and worst ones.
+        Right now this is not too useful because many of the top and bottom trades by profit/loss are wrongly
+        calculated, see https://github.com/QuantConnect/Lean/issues/5325
+        """
+        def results():
+            for test in self.tests():
+                # Allows us to run this while backtests are running to see intermediate results
+                if test.state == TestState.RUNNING:
+                    continue
+                if "_oos_" not in test.name:
+                    continue
+
+                yield self.cio.read_test_result(test)
+
+        return self.top_btm_trades(results(), n)
 
     @classmethod
     def tabulate_dicts(cls, dicts):

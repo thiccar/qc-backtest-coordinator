@@ -284,10 +284,10 @@ class Analysis:
         plt.setp(fig.axes[0].get_xticklabels(), fontsize=10, rotation='vertical')
 
     @classmethod
-    def wfa_oos_top_btm_days(cls, oos_results, n=10):
+    def top_btm_days(cls, results, n=10):
         top = []
         btm = []
-        for result in oos_results:
+        for result in results:
             df = pd.DataFrame(result.bt_result["charts"]["Strategy Equity"]["Series"]["Equity"]["Values"])
             df["ts"] = pd.to_datetime(df["x"], unit="s").apply(
                 lambda ts: ts.tz_localize("UTC").tz_convert("America/New_York"))
@@ -325,6 +325,16 @@ class Analysis:
                 btm = btm[:n]
 
         return top, btm
+
+    def all_results_top_btm_trades(self, n=10):
+        def results():
+            for test in self.tests():
+                # Allows us to run this while backtests are running to see intermediate results
+                if test.state == TestState.RUNNING:
+                    continue
+                yield self.cio.read_test_result(test)
+
+        return self.top_btm_trades(results(), n)
 
     def wfa_oos_top_btm_trades(self, n=10):
         """Number of trades across all backtests can be very large, so we usually don't load them into the result

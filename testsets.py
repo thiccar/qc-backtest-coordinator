@@ -13,6 +13,8 @@ import random
 from babel.numbers import parse_decimal
 import coolname
 import coolname.data
+import numpy as np
+import pandas as pd
 from sklearn.model_selection import ParameterGrid
 
 
@@ -145,17 +147,47 @@ class TestResult:
     def total_trades(self):
         return int(self.statistics["Total Trades"])
 
-    def winning_trades(self):
+    def total_winning_trades(self):
         return int(self.trade_statistics["NumberOfWinningTrades"])
 
-    def losing_trades(self):
+    def total_losing_trades(self):
         return int(self.trade_statistics["NumberOfLosingTrades"])
+
+    def winning_trades(self):
+        return [t for t in self.closed_trades if t["ProfitLoss"] > 0]
+
+    def losing_trades(self):
+        return [t for t in self.closed_trades if t["ProfitLoss"] < 0]
 
     def avg_win(self):
         return Decimal(self.trade_statistics["AverageProfit"])
 
+    def stdev_win(self):
+        return Decimal(np.std([trade["ProfitLoss"] for trade in self.closed_trades if trade["ProfitLoss"] > 0]))
+
     def avg_loss(self):
         return Decimal(self.trade_statistics["AverageLoss"])
+
+    def stdev_loss(self):
+        return Decimal(self.trade_statistics["ProfitLossDownsideDeviation"])
+
+    def max_win(self):
+        return Decimal(self.trade_statistics["LargestProfit"])
+
+    def max_loss(self):
+        return Decimal(self.trade_statistics["LargestLoss"])
+
+    def max_win_trade(self):
+        return max(self.closed_trades, key=lambda t: t["ProfitLoss"])
+
+    def min_win_trade(self):
+        return min((t for t in self.closed_trades if t["ProfitLoss"] > 0), key=lambda t: t["ProfitLoss"])
+
+    def max_loss_trade(self):
+        return min(self.closed_trades, key=lambda t: t["ProfitLoss"])
+
+    def min_loss_trade(self):
+        return max((t for t in self.closed_trades if t["ProfitLoss"] < 0), key=lambda t: t["ProfitLoss"])
 
     def net_profit(self):
         return self.parse_dollars(self.runtime_statistics["Net Profit"])
@@ -195,8 +227,8 @@ class TestResult:
         """
         initial_equity = self.final_equity() / (1 + self.total_return())
 
-        adj_gain = self.avg_win() * Decimal(self.winning_trades() - math.sqrt(self.winning_trades()))
-        adj_loss = self.avg_loss() * Decimal(self.losing_trades() + math.sqrt(self.losing_trades()))
+        adj_gain = self.avg_win() * Decimal(self.total_winning_trades() - math.sqrt(self.total_winning_trades()))
+        adj_loss = self.avg_loss() * Decimal(self.total_losing_trades() + math.sqrt(self.total_losing_trades()))
 
         adj_total_return = (adj_gain + adj_loss) / initial_equity
         if adj_total_return <= -1:  # Lost everything
@@ -206,6 +238,18 @@ class TestResult:
         adj_annualized_return = ((1 + adj_total_return) ** Decimal(1 / bt_years)) - 1
 
         return adj_annualized_return
+
+    def equity_timeseries(self):
+        """[{"x": 1577854800, "y": 1000000}, {"x": 1577977200, "y": 1234567}, ... ]"""
+        return self.bt_result["charts"]["Strategy Equity"]["Series"]["Equity"]["Values"]
+
+    def equity_timeseries_df(self):
+        ts = self.equity_timeseries()
+        df = pd.DataFrame(ts)
+        df["x"] = pd.to_datetime(df["x"], "s")
+        df.set_index("x", inplace=True)
+
+        return df
 
     @classmethod
     def parse_dollars(cls, s: str) -> Decimal:
@@ -217,6 +261,17 @@ class TestResult:
         assert s.endswith("%")
         return parse_decimal(s.strip("%"), locale='en_US') / 100
 
+    @classmethod
+    def trade_duration(cls, trade):
+        duration = trade["Duration"]
+        if "." in duration:
+            days, hms = duration.split(".")
+        else:
+            days = 0
+            hms = duration
+
+        h, m, s = hms.split(":")
+        return pd.Timedelta(days=int(days), hours=int(h), minutes=int(m), seconds=int(s))
 
 class TestSet(ABC):
     NO_OP = Test("no-op", None)  # Returned when don't have a new test yet, but are not done generating tests.

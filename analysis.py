@@ -1,8 +1,9 @@
 """Code that can be shared among Jupyter notebooks"""
 import csv
 from datetime import datetime, timedelta
+from decimal import Decimal
 import functools
-from itertools import groupby
+import itertools
 import json
 import logging
 import statistics
@@ -13,7 +14,7 @@ import pandas as pd
 from tabulate import tabulate
 
 from coordinator_io import CoordinatorIO
-from testsets import Test, TestState
+from testsets import Test, TestResult, TestState
 
 
 class Analysis:
@@ -26,18 +27,13 @@ class Analysis:
         state = self.cio.read_state()
         return [Test.from_dict(t) for t in state["coordinator"]["tests"]]
 
-    def results(self, only_keep_useful=False):
+    def results(self):
         for t in self.tests():
             # Allows us to run this while backtests are running to see intermediate results
             if t.state == TestState.RUNNING:
                 continue
             result = self.cio.read_test_result(t)
 
-            # If the definition of useful varies a lot across tests, we may need to be more flexible here
-            if only_keep_useful:
-                useful = {k: result.bt_result[k] for k in result.required_keys}
-                useful["charts"] = {"Strategy Equity": result.bt_result["charts"]["Strategy Equity"]}
-                result.bt_result = useful
             yield result
 
     @classmethod
@@ -70,7 +66,7 @@ class Analysis:
 
     @classmethod
     def results_by_period(cls, results, sort_by_params=False):
-        grouped = list(list(g) for (_, g) in groupby(results, key=lambda r: (r.test.start, r.test.end)))
+        grouped = list(list(g) for (_, g) in itertools.groupby(results, key=lambda r: (r.test.start, r.test.end)))
 
         # Sort each period results so that the result at the same index has same params
         def params_sort_key(result):
@@ -153,7 +149,7 @@ class Analysis:
         if oos_combined:
             oos_sorted.remove(oos_combined)
 
-        opt_grouped = groupby([r for r in results if "_opt_" in r.test.name], key=lambda r: r.test.start)
+        opt_grouped = itertools.groupby([r for r in results if "_opt_" in r.test.name], key=lambda r: r.test.start)
         opt_sorted = sorted([(d, list(g)) for (d, g) in opt_grouped], key=lambda tup: tup[0])
         wfa_results = [(opt_results, oos_result) for ((_, opt_results), oos_result) in zip(opt_sorted, oos_sorted)]
 
@@ -168,7 +164,7 @@ class Analysis:
         """Return a formatted table with WFA summary statistics a la Pardo (see https://pasteboard.co/JMmVgHk.png)"""
         headers = ["", "Opt\nStart", "Opt\nEnd", "Best Opt P/L\nAnnualized", "Best Opt\nMax Drawdown", "OOS\nStart",
                    "OOS\nEnd", "Net P/L", "Net P/L\nAnnualized", "Max\nDrawdown", "ROMAD\nAnnualized", "Win %",
-                   "Walk-Forward\nEfficiency", "Sharpe\nRatio", "PSR"]
+                   "Walk-Forward\nEfficiency", "Sharpe\nRatio", "PSR", "OOS Params"]
         table = []
         for (opt_results, oos_result) in wfa_results:
             best_opt = max(opt_results, key=objective_fn)
@@ -188,6 +184,7 @@ class Analysis:
                 oos_result.annualized_net_profit() / best_opt.annualized_net_profit(),
                 oos_result.sharpe_ratio(),
                 oos_result.probabilistic_sharpe_ratio(),
+                json.dumps(oos_result.test.params),
             ]
             table.append(row)
 
@@ -233,7 +230,7 @@ class Analysis:
         combined_xs = []
         combined_ys = []
         for (_, oos_result) in wfa_results:
-            e = oos_result.bt_result["charts"]["Strategy Equity"]["Series"]["Equity"]["Values"]
+            e = oos_result.equity_timeseries()
             xs = [datetime.fromtimestamp(v["x"]) for v in e]
             ys = [v["y"] for v in e]
 
@@ -311,8 +308,12 @@ class Analysis:
 
     @classmethod
     def top_btm_trades(cls, results, n=10):
+        """Default TradeBuilder does not track splits leading to extreme values at top/bottom, see
+        https://github.com/QuantConnect/Lean/issues/5325
+        """
         top = []
         btm = []
+
         for result in results:
             for trade in result.closed_trades:
                 trade["test"] = result.test.name
@@ -325,41 +326,6 @@ class Analysis:
                 btm = btm[:n]
 
         return top, btm
-
-    def all_results_top_btm_trades(self, n=10):
-        def results():
-            for test in self.tests():
-                # Allows us to run this while backtests are running to see intermediate results
-                if test.state == TestState.RUNNING:
-                    continue
-                yield self.cio.read_test_result(test)
-
-        return self.top_btm_trades(results(), n)
-
-    def wfa_oos_top_btm_trades(self, n=10):
-        """Number of trades across all backtests can be very large, so we usually don't load them into the result
-        objects we keep in memory.  So this method goes back over the test results in directory and looks at all
-        trades to find best and worst ones.
-        Right now this is not too useful because many of the top and bottom trades by profit/loss are wrongly
-        calculated, see https://github.com/QuantConnect/Lean/issues/5325
-        """
-        def results():
-            for test in self.tests():
-                # Allows us to run this while backtests are running to see intermediate results
-                if test.state == TestState.RUNNING:
-                    continue
-                if "_oos_" not in test.name:
-                    continue
-
-                yield self.cio.read_test_result(test)
-
-        return self.top_btm_trades(results(), n)
-
-    @classmethod
-    def tabulate_dicts(cls, dicts):
-        header = dicts[0].keys()
-        rows = [[t[k] for k in header] for t in dicts]
-        return tabulate(rows, headers=header, numalign="right", floatfmt=",.2f")
 
     @classmethod
     def wfa_equity_curve_plot(cls, fig, ax, wfa_results, oos_combined, label=""):
@@ -384,13 +350,115 @@ class Analysis:
     @classmethod
     def wfa_params_plot(cls, fig, wfa_results):
         """Graph change in parameters used"""
-
         params_keys = list(k for k in wfa_results[0][1].test.params.keys() if k not in ["start", "end"])
         xs = [oos_result.test.start for (_, oos_result) in wfa_results]
         axs = fig.subplots(len(params_keys), 1)
-        #for (i, key) in enumerate(params_keys):
         for (ax, key) in zip(axs, params_keys):
-            #ax = fig.add_subplot(i+1, 1, i+1)
             ys = [oos_result.test.params[key] for (_, oos_result) in wfa_results]
             ax.plot(xs, ys, label=key)
             ax.set_title(key)
+
+    @classmethod
+    def wfa_evaluation_profile(cls, wfa_results, oos_combined):
+        """Produce a table like https://pasteboard.co/JO2OL6Y.png (Table 14.1 from "The Evaluation and Optimization of
+        Trading Strategies")
+        """
+        return cls.wfa_evaluation_profile_header(wfa_results, oos_combined) + "\n" +\
+               cls.wfa_evaluation_profile_trade_analysis(wfa_results, oos_combined) + "\n" +\
+               cls.wfa_evaluation_profile_equity_swings(wfa_results, oos_combined)
+
+    @classmethod
+    def wfa_evaluation_profile_header(cls, wfa_results, oos_combined):
+        oos_results = [oos_result for (_, oos_result) in wfa_results]
+        oos_start = oos_results[0].test.start.date()
+        oos_end = oos_results[-1].test.end.date()
+        years = Decimal((oos_end - oos_start).days / 360)
+        net_pl = sum(oos_result.net_profit() for oos_result in oos_results)
+        annualized_pl = net_pl / years
+        total_trades = sum(oos_result.total_trades() for oos_result in oos_results)
+        annual_trades = total_trades / years
+        avg_trade = net_pl / total_trades
+        header = [
+            ["Net P&L", net_pl],
+            ["Annualized P&L", annualized_pl],
+            ["Number of trades", total_trades],
+            ["Avg. annual trades", annual_trades],
+            ["Avg trade", avg_trade]
+        ]
+        return f"{oos_start.isoformat()} to {oos_end.isoformat()}" + "\n" +\
+               tabulate(header, numalign="right", floatfmt=",.2f")
+
+    @classmethod
+    def wfa_evaluation_profile_trade_analysis(cls, wfa_results, oos_combined):
+        oos_results = [oos_result for (_, oos_result) in wfa_results]
+        max_win = max((oos_result.max_win_trade() for oos_result in oos_results), key=lambda t: t["ProfitLoss"])
+        max_loss = min((oos_result.max_loss_trade() for oos_result in oos_results), key=lambda t: t["ProfitLoss"])
+        min_win = min((oos_result.min_win_trade() for oos_result in oos_results), key=lambda t: t["ProfitLoss"])
+        min_loss = max((oos_result.min_loss_trade() for oos_result in oos_results), key=lambda t: t["ProfitLoss"])
+
+        all_wins = list(itertools.chain.from_iterable(oos_result.winning_trades() for oos_result in oos_results))
+        all_losses = list(itertools.chain.from_iterable(oos_result.losing_trades() for oos_result in oos_results))
+        avg_win = np.mean([t["ProfitLoss"] for t in all_wins])
+        avg_win_dur = pd.Timedelta(np.mean([TestResult.trade_duration(t).total_seconds() for t in all_wins]), "s")
+        stdev_win = np.std([t["ProfitLoss"] for t in all_wins])
+        stdev_win_dur = pd.Timedelta(np.std([TestResult.trade_duration(t).total_seconds() for t in all_wins]), "s")
+        avg_loss = np.mean([t["ProfitLoss"] for t in all_losses])
+        avg_loss_dur = pd.Timedelta(np.mean([TestResult.trade_duration(t).total_seconds() for t in all_losses]), "s")
+        stdev_loss = np.std([t["ProfitLoss"] for t in all_losses])
+        stdev_loss_dur = pd.Timedelta(np.std([TestResult.trade_duration(t).total_seconds() for t in all_losses]), "s")
+
+        trade_analysis_header = ["Analysis of Trades", "Price Wins", "Time", "Price Losses", "Time"]
+        trade_analysis = [
+            ["Maximum", max_win["ProfitLoss"], pd.Timedelta(TestResult.trade_duration(max_win)), max_loss["ProfitLoss"], pd.Timedelta(TestResult.trade_duration(max_loss))],
+            ["Minimum", min_win["ProfitLoss"], pd.Timedelta(TestResult.trade_duration(min_win)), min_loss["ProfitLoss"], pd.Timedelta(TestResult.trade_duration(min_loss))],
+            ["Average", avg_win, avg_win_dur.round("1s"), avg_loss, avg_loss_dur.round("1s")],
+            ["StDev", stdev_win, stdev_win_dur.round("1s"), stdev_loss, stdev_loss_dur.round("1s")],
+            ["+1 StDev", avg_win + stdev_win, (avg_win_dur + stdev_win_dur).round("1s"), avg_loss + stdev_loss, (avg_loss_dur + stdev_loss_dur).round("1s")],
+            ["-1 StDev", avg_win - stdev_win, (avg_win_dur - stdev_win_dur).round("1s"), avg_loss - stdev_loss, (avg_loss_dur - stdev_loss_dur).round("1s")],
+        ]
+        return tabulate(trade_analysis, headers=trade_analysis_header, numalign="right", floatfmt=",.2f")
+
+    @classmethod
+    def wfa_evaluation_profile_equity_swings(cls, wfa_results, oos_combined):
+        ups = []
+        downs = []
+        cur = []
+        for d in oos_combined.equity_timeseries():
+            if len(cur) > 2:
+                sign = np.sign(d["y"] - cur[-1]["y"])
+                cur_sign = np.sign(cur[-1]["y"] - cur[0]["y"])
+                if not(sign == 0 or cur_sign == 0 or sign == cur_sign):
+                    run = (datetime.fromtimestamp(cur[-1]["x"]) - datetime.fromtimestamp(cur[0]["x"]),
+                           cur[-1]["y"] / cur[0]["y"])
+                    (ups if cur_sign > 0 else downs).append(run)
+                    cur = []
+            cur.append(d)
+
+        max_up = max(ups, key=lambda tup: tup[1])
+        min_up = min(ups, key=lambda tup: tup[1])
+        max_down = min(downs, key=lambda tup: tup[1])
+        min_down = max(downs, key=lambda tup: tup[1])
+        avg_up = np.mean([tup[1] for tup in ups])
+        avg_up_dur = pd.Timedelta(np.mean([tup[0].total_seconds() for tup in ups]), "s")
+        avg_down = np.mean([tup[1] for tup in downs])
+        avg_down_dur = pd.Timedelta(np.mean([tup[0].total_seconds() for tup in downs]), "s")
+        stdev_up = np.std([tup[1] for tup in ups])
+        stdev_up_dur = pd.Timedelta(np.std([tup[0].total_seconds() for tup in ups]), "s")
+        stdev_down = np.std([tup[1] for tup in downs])
+        stdev_down_dur = pd.Timedelta(np.std([tup[0].total_seconds() for tup in downs]), "s")
+
+        equity_analysis_header = ["Analysis of Equity Swings", "Equity Run-up", "Time", "Equity Drawdown", "Time"]
+        equity_analysis = [
+            ["Maximum", max_up[1], pd.Timedelta(max_up[0]), max_down[1], pd.Timedelta(max_down[0])],
+            ["Minimum", min_up[1], pd.Timedelta(min_up[0]), min_down[1], pd.Timedelta(min_down[0])],
+            ["Average", avg_up, avg_up_dur.round("1s"), avg_down, avg_down_dur.round("1s")],
+            ["StDev", stdev_up, stdev_up_dur.round("1s"), stdev_down, stdev_down_dur.round("1s")],
+            ["+1 StDev", avg_up + stdev_up, (avg_up_dur + stdev_up_dur).round("1s"), avg_down + stdev_down, (avg_down_dur + stdev_down_dur).round("1s")],
+            ["-1 StDev", avg_up - stdev_up, (avg_up_dur - stdev_up_dur).round("1s"), avg_down - stdev_down, (avg_down_dur - stdev_down_dur).round("1s")],
+        ]
+        return tabulate(equity_analysis, headers=equity_analysis_header, numalign="right", floatfmt=",.2f")
+
+    @classmethod
+    def wfa_evaluation_rolling_window(cls, wfa_results, oos_combined, window):
+        df = oos_combined.equity_timeseries_df()
+

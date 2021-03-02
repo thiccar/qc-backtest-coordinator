@@ -361,11 +361,18 @@ class Analysis:
     @classmethod
     def wfa_evaluation_profile(cls, wfa_results, oos_combined):
         """Produce a table like https://pasteboard.co/JO2OL6Y.png (Table 14.1 from "The Evaluation and Optimization of
-        Trading Strategies")
+        Trading Strategies"), as well as similar stats for rolling windows.
         """
-        return cls.wfa_evaluation_profile_header(wfa_results, oos_combined) + "\n" +\
-               cls.wfa_evaluation_profile_trade_analysis(wfa_results, oos_combined) + "\n" +\
-               cls.wfa_evaluation_profile_equity_swings(wfa_results, oos_combined)
+        return "\n".join([
+            cls.wfa_evaluation_profile_header(wfa_results, oos_combined),
+            cls.wfa_evaluation_profile_trade_analysis(wfa_results, oos_combined),
+            cls.wfa_evaluation_profile_equity_swings(wfa_results, oos_combined),
+            cls.wfa_evaluation_rolling_window(wfa_results, oos_combined, pd.Timedelta(7, "D")),
+            cls.wfa_evaluation_rolling_window(wfa_results, oos_combined, pd.Timedelta(30, "D")),
+            cls.wfa_evaluation_rolling_window(wfa_results, oos_combined, pd.Timedelta(90, "D")),
+            cls.wfa_evaluation_rolling_window(wfa_results, oos_combined, pd.Timedelta(180, "D")),
+            cls.wfa_evaluation_rolling_window(wfa_results, oos_combined, pd.Timedelta(360, "D"))
+        ])
 
     @classmethod
     def wfa_evaluation_profile_header(cls, wfa_results, oos_combined):
@@ -459,6 +466,27 @@ class Analysis:
         return tabulate(equity_analysis, headers=equity_analysis_header, numalign="right", floatfmt=",.2f")
 
     @classmethod
-    def wfa_evaluation_rolling_window(cls, wfa_results, oos_combined, window):
+    def wfa_evaluation_rolling_window(cls, wfa_results, oos_combined, windowsize):
         df = oos_combined.equity_timeseries_df()
+
+        def window_return(rows):
+            if rows.index[-1] - df.index[0] >= windowsize:
+                return rows[-1] / rows[0]
+            else:
+                return np.nan
+
+        rolling_windows = df.rolling(windowsize, closed="neither").apply(window_return).dropna()
+        up_windows = rolling_windows[rolling_windows["y"] > 1]
+        down_windows = rolling_windows[rolling_windows["y"] < 1]
+        header = [f"Rolling Window: {windowsize}", "Equity Run-Up", "Equity Drawdown"]
+        body = [
+            ["Maximum", up_windows["y"].max(), down_windows["y"].min()],
+            ["Minimum", up_windows["y"].min(), down_windows["y"].max()],
+            ["Average", up_windows["y"].mean(), down_windows["y"].mean()],
+            ["StDev", up_windows["y"].std(), down_windows["y"].std()],
+            ["+1 StDev", up_windows["y"].mean() + up_windows["y"].std(), down_windows["y"].mean() + down_windows["y"].std()],
+            ["-1 StDev", up_windows["y"].mean() - up_windows["y"].std(), down_windows["y"].mean() - down_windows["y"].std()],
+        ]
+        return tabulate(body, headers=header, numalign="right", floatfmt=",.2f")
+
 

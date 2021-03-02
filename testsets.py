@@ -246,7 +246,7 @@ class TestResult:
     def equity_timeseries_df(self):
         ts = self.equity_timeseries()
         df = pd.DataFrame(ts)
-        df["x"] = pd.to_datetime(df["x"], "s")
+        df["x"] = pd.to_datetime(df["x"], unit="s")
         df.set_index("x", inplace=True)
 
         return df

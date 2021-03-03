@@ -164,7 +164,7 @@ class Analysis:
         """Return a formatted table with WFA summary statistics a la Pardo (see https://pasteboard.co/JMmVgHk.png)"""
         headers = ["", "Opt\nStart", "Opt\nEnd", "Best Opt P/L\nAnnualized", "Best Opt\nMax Drawdown", "OOS\nStart",
                    "OOS\nEnd", "Net P/L", "Net P/L\nAnnualized", "Max\nDrawdown", "ROMAD\nAnnualized", "Win %",
-                   "Walk-Forward\nEfficiency", "Sharpe\nRatio", "PSR", "OOS Params"]
+                   "Walk-Forward\nEfficiency", "Sortino\nRatio", "Sharpe\nRatio", "PSR", "OOS Params"]
         table = []
         for (opt_results, oos_result) in wfa_results:
             best_opt = max(opt_results, key=objective_fn)
@@ -182,6 +182,7 @@ class Analysis:
                 oos_result.annualized_return_over_max_drawdown(),
                 oos_result.win_rate(),
                 oos_result.annualized_net_profit() / best_opt.annualized_net_profit(),
+                oos_result.sortino_ratio(),
                 oos_result.sharpe_ratio(),
                 oos_result.probabilistic_sharpe_ratio(),
                 json.dumps(oos_result.test.params),
@@ -203,6 +204,7 @@ class Analysis:
             statistics.mean(r[12] for r in table),
             statistics.mean(r[13] for r in table),
             statistics.mean(r[14] for r in table),
+            statistics.mean(r[15] for r in table),
         ]
         table.append(summary)
 
@@ -218,6 +220,7 @@ class Analysis:
                 oos_combined.annualized_return_over_max_drawdown(),
                 oos_combined.win_rate(),
                 oos_combined.annualized_net_profit() / mean_opt_annualized_pl,
+                oos_combined.sortino_ratio(),
                 oos_combined.sharpe_ratio(),
                 oos_combined.probabilistic_sharpe_ratio(),
             ]
@@ -275,6 +278,37 @@ class Analysis:
 
         ax.bar(x - width / 2, tr, width, label="Total Return", color="green")
         ax.bar(x + width / 2, dd, width, label="Drawdown", color="red")
+        ax.set_xticks(x)
+        ax.set_xticklabels(labels)
+        ax.legend()
+        plt.setp(fig.axes[0].get_xticklabels(), fontsize=10, rotation='vertical')
+
+    @classmethod
+    def oos_sharpe_sortino_bar_graph(cls, fig, ax, wfa_results):
+        labels = [oos_result.test.start.date() for (_, oos_result) in wfa_results]
+        sharpe = [oos_result.sharpe_ratio() for (_, oos_result) in wfa_results]
+        sortino = [oos_result.sortino_ratio() for (_, oos_result) in wfa_results]
+        x = np.arange(len(labels))
+        width = 0.35
+
+        ax.bar(x - width / 2, sharpe, width, label="Sharpe", color="green")
+        ax.bar(x + width / 2, sortino, width, label="Sortino", color="blue")
+        ax.set_xticks(x)
+        ax.set_xticklabels(labels)
+        ax.legend()
+        plt.setp(fig.axes[0].get_xticklabels(), fontsize=10, rotation='vertical')
+
+    @classmethod
+    def oos_walk_forward_efficiency_bar_graph(cls, fig, ax, wfa_results, objective_fn):
+        wfe = []
+        for (opt_results, oos_result) in wfa_results:
+            best_opt = max(opt_results, key=objective_fn)
+            wfe.append(oos_result.annualized_net_profit() / best_opt.annualized_net_profit())
+        labels = [oos_result.test.start.date() for (_, oos_result) in wfa_results]
+        x = np.arange(len(labels))
+        width = 0.35
+
+        ax.bar(x, wfe, width, label="Walk Forward Efficiency", color="green")
         ax.set_xticks(x)
         ax.set_xticklabels(labels)
         ax.legend()

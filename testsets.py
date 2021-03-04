@@ -524,7 +524,7 @@ class WalkForwardMultiple(TestSet):
     def sub_tests(self):
         sub = []
         opt_start = self.start
-        while opt_start + relativedelta(months=self.opt_months + self.oos_months) - timedelta(1) <= self.end:
+        while opt_start + relativedelta(months=self.opt_months) - timedelta(1) <= self.end:
             wfs = WalkForwardSingle(opt_start, self.opt_months, self.oos_months, self.param_grid,
                                     self.objective_fn, self.params_filter, self.extraneous_params)
             sub.append(wfs)

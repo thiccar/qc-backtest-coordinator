@@ -27,13 +27,18 @@ class Analysis:
         state = self.cio.read_state()
         return [Test.from_dict(t) for t in state["coordinator"]["tests"]]
 
-    def results(self):
+    def results(self, exclude_trades=False, exclude_rolling_window=False, exclude_charts=False):
         for t in self.tests():
             # Allows us to run this while backtests are running to see intermediate results
             if t.state == TestState.RUNNING:
                 continue
             result = self.cio.read_test_result(t)
-
+            if exclude_trades:
+                del result.bt_result["totalPerformance"]["ClosedTrades"]
+            if exclude_rolling_window:
+                del result.bt_result["rollingWindow"]
+            if exclude_charts:
+                del result.bt_result["charts"]
             yield result
 
     @classmethod

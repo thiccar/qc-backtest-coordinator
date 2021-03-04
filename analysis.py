@@ -234,32 +234,23 @@ class Analysis:
 
     @classmethod
     def stitch_oos_equity_curve(cls, wfa_results):
-        previous = None
-        combined_xs = []
-        combined_ys = []
+        combined = None
         for (_, oos_result) in wfa_results:
             e = oos_result.equity_timeseries()
-            xs = [datetime.fromtimestamp(v["x"]) for v in e]
-            ys = [v["y"] for v in e]
+            if combined:
+                multiplier = combined.iloc[-1] / e.iloc[0]
+                e = e * multiplier
+                combined.append(e)
+            else:
+                combined = e
 
-            initial = ys[0]
-            if not previous:
-                previous = initial
-            adj = previous / initial
-            # print(f"{s.test.params['start']} {previous} {initial} {adj}")
-            adj_ys = [adj * y for y in ys]
-            previous = adj_ys[-1]
-
-            combined_xs.extend(xs)
-            combined_ys.extend(adj_ys)
-
-        duration = combined_xs[-1] - combined_xs[0]
-        total_return = combined_ys[-1] / combined_ys[0]
+        duration = combined.index[-1] - combined.index[0]
+        total_return = combined.iloc[-1] / combined.iloc[0]
         annualized_return = (total_return - 1) ** (1 / (duration / timedelta(365)))
         print(f"Stitched: Duration = {duration} Total Return = {total_return - 1}"
               f"Annualized Return = {annualized_return - 1}")
 
-        return combined_xs, combined_ys
+        return combined
 
     @classmethod
     def total_trades_bar_graph(cls, fig, ax, results, label_fn=None):
@@ -466,32 +457,35 @@ class Analysis:
 
     @classmethod
     def wfa_evaluation_profile_equity_swings(cls, wfa_results, oos_combined):
-        ups = []
-        downs = []
-        cur = []
-        for d in oos_combined.equity_timeseries():
-            if len(cur) > 2:
-                sign = np.sign(d["y"] - cur[-1]["y"])
-                cur_sign = np.sign(cur[-1]["y"] - cur[0]["y"])
-                if not(sign == 0 or cur_sign == 0 or sign == cur_sign):
-                    run = (datetime.fromtimestamp(cur[-1]["x"]) - datetime.fromtimestamp(cur[0]["x"]),
-                           cur[-1]["y"] / cur[0]["y"])
-                    (ups if cur_sign > 0 else downs).append(run)
-                    cur = []
-            cur.append(d)
+        # https://stackoverflow.com/questions/31543697/how-to-split-pandas-dataframe-based-on-difference-of-values-in-a-column
+        # Best to debug this logic in a Jupyter notebook
+        df = oos_combined.equity_timeseries().resample("1D").first().dropna().to_frame()
+        df["pct"] = df.pct_change()
+        df["sign"] = np.sign(df["pct"])
 
-        max_up = max(ups, key=lambda tup: tup[1])
-        min_up = min(ups, key=lambda tup: tup[1])
-        max_down = min(downs, key=lambda tup: tup[1])
-        min_down = max(downs, key=lambda tup: tup[1])
-        avg_up = np.mean([tup[1] for tup in ups])
-        avg_up_dur = pd.Timedelta(np.mean([tup[0].total_seconds() for tup in ups]), "s")
-        avg_down = np.mean([tup[1] for tup in downs])
-        avg_down_dur = pd.Timedelta(np.mean([tup[0].total_seconds() for tup in downs]), "s")
-        stdev_up = np.std([tup[1] for tup in ups])
-        stdev_up_dur = pd.Timedelta(np.std([tup[0].total_seconds() for tup in ups]), "s")
-        stdev_down = np.std([tup[1] for tup in downs])
-        stdev_down_dur = pd.Timedelta(np.std([tup[0].total_seconds() for tup in downs]), "s")
+        directional = df[df["sign"] != 0]
+        df["run"] = (directional["sign"] != directional["sign"].shift()).cumsum()
+        df["run"].fillna(method="ffill", inplace=True)
+
+        runs = df.reset_index().groupby("run").agg({
+            "x": lambda g: g.max() - g.min() + pd.Timedelta(1, "D"),
+            "pct": lambda g: (g + 1).prod()
+        })
+        ups = runs[runs["pct"] > 1]
+        downs = runs[runs["pct"] < 1]
+
+        max_up = ups.loc[ups["pct"].idxmax()]
+        min_up = ups.loc[ups["pct"].idxmin()]
+        max_down = downs.loc[downs["pct"].idxmin()]
+        min_down = downs.loc[downs["pct"].idxmax()]
+        avg_up = ups["pct"].mean()
+        avg_up_dur = ups["x"].mean()
+        avg_down = downs["pct"].mean()
+        avg_down_dur = downs["x"].mean()
+        stdev_up = ups["pct"].std()
+        stdev_up_dur = ups["x"].std()
+        stdev_down = downs["pct"].std()
+        stdev_down_dur = downs["x"].std()
 
         equity_analysis_header = ["Analysis of Equity Swings", "Equity Run-up", "Time", "Equity Drawdown", "Time"]
         equity_analysis = [
@@ -506,25 +500,25 @@ class Analysis:
 
     @classmethod
     def wfa_evaluation_rolling_window(cls, wfa_results, oos_combined, windowsize):
-        df = oos_combined.equity_timeseries_df()
+        equity = oos_combined.equity_timeseries()
 
         def window_return(rows):
-            if rows.index[-1] - df.index[0] >= windowsize:
+            if rows.index[-1] - equity.index[0] >= windowsize:
                 return rows[-1] / rows[0]
             else:
                 return np.nan
 
-        rolling_windows = df.rolling(windowsize, closed="neither").apply(window_return).dropna()
-        up_windows = rolling_windows[rolling_windows["y"] > 1]
-        down_windows = rolling_windows[rolling_windows["y"] < 1]
+        rolling_windows = equity.rolling(windowsize, closed="neither").apply(window_return).dropna()
+        up_windows = rolling_windows[rolling_windows > 1]
+        down_windows = rolling_windows[rolling_windows < 1]
         header = [f"Rolling Window: {windowsize}", "Equity Run-Up", "Equity Drawdown"]
         body = [
-            ["Maximum", up_windows["y"].max(), down_windows["y"].min()],
-            ["Minimum", up_windows["y"].min(), down_windows["y"].max()],
-            ["Average", up_windows["y"].mean(), down_windows["y"].mean()],
-            ["StDev", up_windows["y"].std(), down_windows["y"].std()],
-            ["+1 StDev", up_windows["y"].mean() + up_windows["y"].std(), down_windows["y"].mean() + down_windows["y"].std()],
-            ["-1 StDev", up_windows["y"].mean() - up_windows["y"].std(), down_windows["y"].mean() - down_windows["y"].std()],
+            ["Maximum", up_windows.max(), down_windows.min()],
+            ["Minimum", up_windows.min(), down_windows.max()],
+            ["Average", up_windows.mean(), down_windows.mean()],
+            ["StDev", up_windows.std(), down_windows.std()],
+            ["+1 StDev", up_windows.mean() + up_windows.std(), down_windows.mean() + down_windows.std()],
+            ["-1 StDev", up_windows.mean() - up_windows.std(), down_windows.mean() - down_windows.std()],
         ]
         return tabulate(body, headers=header, numalign="right", floatfmt=",.2f")
 

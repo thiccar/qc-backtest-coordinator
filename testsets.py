@@ -242,16 +242,12 @@ class TestResult:
         return adj_annualized_return
 
     def equity_timeseries(self):
-        """[{"x": 1577854800, "y": 1000000}, {"x": 1577977200, "y": 1234567}, ... ]"""
-        return self.bt_result["charts"]["Strategy Equity"]["Series"]["Equity"]["Values"]
-
-    def equity_timeseries_df(self):
-        ts = self.equity_timeseries()
+        ts = self.bt_result["charts"]["Strategy Equity"]["Series"]["Equity"]["Values"]
         df = pd.DataFrame(ts)
         df["x"] = pd.to_datetime(df["x"], unit="s")
         df.set_index("x", inplace=True)
 
-        return df
+        return df["y"]
 
     @classmethod
     def parse_dollars(cls, s: str) -> Decimal:

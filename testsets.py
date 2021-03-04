@@ -444,14 +444,14 @@ class WalkForwardSingle(TestSet):
             self.logger.info(f"Finished optimization, beginning OOS with best param set: {self.oos_test.to_dict()}")
             yield self.oos_test
 
-    def on_test_completed(self, results):
-        self.opt_tests[results.test.name] = (results.test, results)
+    def on_test_completed(self, result):
+        self.opt_tests[result.test.name] = (result.test, self.objective_fn(result))
 
     def generate_oos_test(self):
-        obj_values = [self.objective_fn(r) for (t, r) in self.opt_tests.values()]
-        best = max((r for (t, r) in self.opt_tests.values()), key=self.objective_fn)
-        self.logger.info(f"max={max(obj_values)} obj_values={obj_values}")
-        params = copy.deepcopy(best.test.params)
+        obj_values = [obj_val for (test, obj_val) in self.opt_tests.values()]
+        best_opt_test, best_opt_obj_val = max(self.opt_tests.values(), key=lambda tup: tup[1])
+        self.logger.info(f"max={best_opt_obj_val} obj_values={obj_values}")
+        params = copy.deepcopy(best_opt_test.params)
         params["start"] = self.oos_start.isoformat()
         params["end"] = self.oos_end.isoformat()
         name = Test.generate_name(f"wf_{self.opt_months}_{self.oos_months}_oos_{self.oos_start}_{self.oos_end}", params)

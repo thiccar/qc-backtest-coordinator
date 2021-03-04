@@ -114,7 +114,6 @@ class TestResult:
         self.runtime_statistics = bt_result["runtimeStatistics"]
         self.statistics = bt_result["statistics"]
         self.trade_statistics = bt_result["totalPerformance"]["TradeStatistics"]
-        self.closed_trades = bt_result["totalPerformance"]["ClosedTrades"]
         self.alpha_runtime_statistics = bt_result["alphaRuntimeStatistics"]
 
     @classmethod
@@ -144,6 +143,9 @@ class TestResult:
     def final_equity(self):
         return self.parse_dollars(self.runtime_statistics["Equity"])
 
+    def closed_trades(self):
+        return self.bt_result["totalPerformance"]["ClosedTrades"]
+
     def total_trades(self):
         return int(self.statistics["Total Trades"])
 
@@ -154,16 +156,16 @@ class TestResult:
         return int(self.trade_statistics["NumberOfLosingTrades"])
 
     def winning_trades(self):
-        return [t for t in self.closed_trades if t["ProfitLoss"] > 0]
+        return [t for t in self.closed_trades() if t["ProfitLoss"] > 0]
 
     def losing_trades(self):
-        return [t for t in self.closed_trades if t["ProfitLoss"] < 0]
+        return [t for t in self.closed_trades() if t["ProfitLoss"] < 0]
 
     def avg_win(self):
         return Decimal(self.trade_statistics["AverageProfit"])
 
     def stdev_win(self):
-        return Decimal(np.std([trade["ProfitLoss"] for trade in self.closed_trades if trade["ProfitLoss"] > 0]))
+        return Decimal(np.std([trade["ProfitLoss"] for trade in self.closed_trades() if trade["ProfitLoss"] > 0]))
 
     def avg_loss(self):
         return Decimal(self.trade_statistics["AverageLoss"])
@@ -178,16 +180,16 @@ class TestResult:
         return Decimal(self.trade_statistics["LargestLoss"])
 
     def max_win_trade(self):
-        return max(self.closed_trades, key=lambda t: t["ProfitLoss"])
+        return max(self.closed_trades(), key=lambda t: t["ProfitLoss"])
 
     def min_win_trade(self):
-        return min((t for t in self.closed_trades if t["ProfitLoss"] > 0), key=lambda t: t["ProfitLoss"])
+        return min((t for t in self.closed_trades() if t["ProfitLoss"] > 0), key=lambda t: t["ProfitLoss"])
 
     def max_loss_trade(self):
-        return min(self.closed_trades, key=lambda t: t["ProfitLoss"])
+        return min(self.closed_trades(), key=lambda t: t["ProfitLoss"])
 
     def min_loss_trade(self):
-        return max((t for t in self.closed_trades if t["ProfitLoss"] < 0), key=lambda t: t["ProfitLoss"])
+        return max((t for t in self.closed_trades() if t["ProfitLoss"] < 0), key=lambda t: t["ProfitLoss"])
 
     def net_profit(self):
         return self.parse_dollars(self.runtime_statistics["Net Profit"])

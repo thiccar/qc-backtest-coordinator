@@ -349,7 +349,7 @@ class Analysis:
         btm = []
 
         for result in results:
-            for trade in result.closed_trades:
+            for trade in result.closed_trades():
                 trade["test"] = result.test.name
                 top.append(trade)
                 top.sort(key=lambda t: t["ProfitLoss"], reverse=True)

@@ -244,7 +244,7 @@ class TestResult:
     def equity_timeseries(self):
         ts = self.bt_result["charts"]["Strategy Equity"]["Series"]["Equity"]["Values"]
         df = pd.DataFrame(ts)
-        df["x"] = pd.to_datetime(df["x"], unit="s")
+        df["x"] = pd.to_datetime(df["x"], unit="s", utc=True)  # See BaseResultsHandler.Sample() in LEAN for UTC
         df.set_index("x", inplace=True)
 
         return df["y"]

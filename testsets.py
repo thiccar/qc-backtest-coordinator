@@ -1,6 +1,7 @@
 from abc import *
 import copy
 from datetime import date, datetime, timedelta
+import dateutil as du
 from dateutil.relativedelta import relativedelta
 from decimal import Decimal
 from enum import Enum
@@ -145,6 +146,17 @@ class TestResult:
 
     def closed_trades(self):
         return self.bt_result["totalPerformance"]["ClosedTrades"]
+
+    def closed_trades_df(self):
+        ct = copy.deepcopy(self.closed_trades())
+        for t in ct:
+            t["Symbol"] = t["Symbol"]["ID"]
+            t["EntryTime"] = du.parser.parse(t["EntryTime"])
+            t["ExitTime"] = du.parser.parse(t["ExitTime"])
+            t["Duration"] = self.trade_duration(t)
+
+        df = pd.DataFrame(ct)
+        return df
 
     def total_trades(self):
         return int(self.statistics["Total Trades"])

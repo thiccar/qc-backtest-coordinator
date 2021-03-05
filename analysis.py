@@ -237,12 +237,12 @@ class Analysis:
         combined = None
         for (_, oos_result) in wfa_results:
             e = oos_result.equity_timeseries()
-            if combined:
+            if combined is None:
+                combined = e
+            else:
                 multiplier = combined.iloc[-1] / e.iloc[0]
                 e = e * multiplier
-                combined.append(e)
-            else:
-                combined = e
+                combined = combined.append(e)
 
         duration = combined.index[-1] - combined.index[0]
         total_return = combined.iloc[-1] / combined.iloc[0]
@@ -363,18 +363,15 @@ class Analysis:
         starts later than the single curve, that is because they perfectly overlap for the duration of the first OOS
         test.
         """
-        combined_xs, combined_ys = cls.stitch_oos_equity_curve(wfa_results)
+        stitched = cls.stitch_oos_equity_curve(wfa_results)
 
-        ax.plot(combined_xs, combined_ys, label=f"{label}_stitched" if label else "stitched")
+        ax.plot(stitched, label=f"{label}_stitched" if label else "stitched")
         ax.set_yscale("log")
 
         if oos_combined:
             print(f"Combined: Duration = {oos_combined.duration()} Total Return = {oos_combined.total_return()} "
                   f"Annualized Return = {oos_combined.compounding_annual_return()}")
-            e = oos_combined.bt_result["charts"]["Strategy Equity"]["Series"]["Equity"]["Values"]
-            xs = [datetime.fromtimestamp(v["x"]) for v in e]
-            ys = [v["y"] for v in e]
-            ax.plot(xs, ys, label=f"{label}_continuous" if label else "continuous")
+            ax.plot(oos_combined.equity_timeseries(), label=f"{label}_continuous" if label else "continuous")
         ax.legend()
 
     @classmethod

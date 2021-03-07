@@ -143,7 +143,7 @@ class Analysis:
         return tabulate(table, headers=headers)
 
     @classmethod
-    def group_wfa_results(cls, results):
+    def wfa_grouped_results(cls, results):
         oos_sorted = list(sorted([r for r in results if "_oos_" in r.test.name], key=lambda r: r.test.start))
 
         combined_start = oos_sorted[0].test.start
@@ -163,7 +163,7 @@ class Analysis:
             assert oos_result.test.start == opt_results[0].test.end + timedelta(1)
 
         # TODO: Consider creating a class to group together this information
-        return wfa_results, oos_combined
+        return wfa_results
 
     @classmethod
     def wfa_summary_statistics(cls, wfa_results, oos_combined, objective_fn):
@@ -312,10 +312,15 @@ class Analysis:
         plt.setp(fig.axes[0].get_xticklabels(), fontsize=10, rotation='vertical')
 
     @classmethod
-    def oos_vs_is_graph(cls, fig, ax, wfa_results, metric_fn, metric_name):
+    def oos_vs_is(cls, wfa_results, metric_fn):
         ins_metrics = [[metric_fn(r) for r in opt_results] for (opt_results, _) in wfa_results]
         oos_metrics = [metric_fn(oos_result) for (_, oos_result) in wfa_results]
         percentiles = [percentileofscore(ins, oos) for (ins, oos) in zip(ins_metrics, oos_metrics)]
+        return ins_metrics, oos_metrics, percentiles
+
+    @classmethod
+    def oos_vs_is_graph(cls, fig, ax, wfa_results, metric_fn, metric_name):
+        ins_metrics, oos_metrics, percentiles = cls.oos_vs_is(wfa_results, metric_fn)
         ax.boxplot(ins_metrics, positions=np.arange(len(wfa_results)),
                    labels=[oos_result.test.start.date() for (_, oos_result) in wfa_results])
         lines = ax.plot(oos_metrics)

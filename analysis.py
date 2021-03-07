@@ -11,6 +11,7 @@ import statistics
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from scipy.stats import percentileofscore
 from tabulate import tabulate
 
 from coordinator_io import CoordinatorIO
@@ -309,6 +310,20 @@ class Analysis:
         ax.set_xticklabels(labels)
         ax.legend()
         plt.setp(fig.axes[0].get_xticklabels(), fontsize=10, rotation='vertical')
+
+    @classmethod
+    def oos_vs_is_graph(cls, fig, ax, wfa_results, metric_fn, metric_name):
+        ins_metrics = [[metric_fn(r) for r in opt_results] for (opt_results, _) in wfa_results]
+        oos_metrics = [metric_fn(oos_result) for (_, oos_result) in wfa_results]
+        percentiles = [percentileofscore(ins, oos) for (ins, oos) in zip(ins_metrics, oos_metrics)]
+        ax.boxplot(ins_metrics, positions=np.arange(len(wfa_results)),
+                   labels=[oos_result.test.start.date() for (_, oos_result) in wfa_results])
+        lines = ax.plot(oos_metrics)
+        xy = lines[0].get_xydata()
+        for (i, pct) in enumerate(percentiles):
+            ax.annotate(f"{round(pct,1)}%", xy=xy[i])
+        plt.setp(ax.get_xticklabels(), fontsize=10, rotation='vertical')
+        ax.set_title(f"OOS vs IS {metric_name}")
 
     @classmethod
     def top_btm_days(cls, results, n=10):

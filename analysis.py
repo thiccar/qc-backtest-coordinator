@@ -519,4 +519,20 @@ class Analysis:
         ]
         return tabulate(body, headers=header, numalign="right", floatfmt=",.2f")
 
+    @staticmethod
+    def load_sfp():
+        sfp = pd.read_csv(r"C:\Users\karth\OneDrive\Documents\Data\SHARADAR_SFP_233bb9e7eb4cd1e64e2ab1117cd9dffa.zip")
+        sfp["date"] = pd.to_datetime(sfp["date"])
+        sfp["date"] = sfp["date"].dt.tz_localize("America/New_York")
 
+        sfp.set_index(["ticker", "date"], inplace=True)
+        sfp.sort_index(inplace=True)
+        return sfp
+
+    @staticmethod
+    def benchmark_daily_rets(sfp, benchmark="SPY"):
+        return sfp.loc[benchmark]["close"].pct_change().dropna()
+
+    @staticmethod
+    def benchmark_monthly_rets(sfp, benchmark="SPY"):
+        return sfp.loc[benchmark]["close"].resample("1M").last().pct_change().dropna()

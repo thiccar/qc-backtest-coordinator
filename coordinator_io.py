@@ -56,8 +56,7 @@ class CoordinatorIO:
         return result_path.exists()
 
     def test_result_path(self, test):
-        name = test.name if isinstance(test, Test) else test["name"]  # Support Test or dict
-        return self.test_set_path / f"{name}.json"
+        return self.test_set_path / f"{test.name}.json"
 
     def read_test_log(self, test):
         log_path = self.test_log_path(test)

@@ -296,11 +296,16 @@ class Analysis:
         plt.setp(fig.axes[0].get_xticklabels(), fontsize=10, rotation='vertical')
 
     @classmethod
-    def oos_walk_forward_efficiency_bar_graph(cls, fig, ax, wfa_results, objective_fn):
+    def oos_walk_forward_efficiency(cls, wfa_results, objective_fn):
         wfe = []
         for (opt_results, oos_result) in wfa_results:
             best_opt = max(opt_results, key=objective_fn)
             wfe.append(oos_result.annualized_net_profit() / best_opt.annualized_net_profit())
+        return wfe
+
+    @classmethod
+    def oos_walk_forward_efficiency_bar_graph(cls, fig, ax, wfa_results, objective_fn):
+        wfe = cls.oos_walk_forward_efficiency(wfa_results, objective_fn)
         labels = [oos_result.test.start.date() for (_, oos_result) in wfa_results]
         x = np.arange(len(labels))
         width = 0.35

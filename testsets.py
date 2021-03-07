@@ -472,7 +472,7 @@ class WalkForwardMultiple(TestSet):
 
     # TODO: Consider using relativedelta here
     def __init__(self, start: date, end: date, opt_months: int, oos_months: int, param_grid: dict,
-                 objective_fn, params_filter=None, extraneous_params={}):
+                 objective_fn, params_filter=None, extraneous_params={}, launch_combined=False):
         assert opt_months != oos_months, "Use different (ideally higher) optimization window from oos window"
         self.start = start
         self.end = end
@@ -482,9 +482,10 @@ class WalkForwardMultiple(TestSet):
         self.objective_fn = objective_fn
         self.params_filter = params_filter
         self.extraneous_params = extraneous_params
+        self.launch_combined = launch_combined
 
         self.walk_forwards = self.sub_tests()
-        self.oos_tests = None
+        self.oos_combined = None
 
     def name(self):
         return f"wf_{self.opt_months}_{self.oos_months}_{self.start.isoformat()}_{self.end.isoformat()}"
@@ -504,12 +505,13 @@ class WalkForwardMultiple(TestSet):
             self.logger.info(f"Finished all tests for walk forward opt={wf.opt_start} - {wf.opt_end}"
                              f" oos={wf.oos_start} - {wf.oos_end}")
 
-        self.logger.info("Launching combined oos backtest")
-        self.oos_tests = self.generate_oos_tests()
-        for test in self.oos_tests:
-            yield test
+        if self.launch_combined:
+            self.logger.info("Launching combined oos backtest")
+            self.oos_combined = self.generate_oos_combined()
+            for test in self.oos_combined:
+                yield test
 
-    def generate_oos_tests(self):
+    def generate_oos_combined(self):
         """Run backtest over the entire OOS period covered by the walk forward analysis, using the same parameters
         for each individual walk forward's OOS.  This will help reveal if/where the strategy runs into issues with
         a growing capital base.  Also run a test with margin interest and tax modeling enabled, to give us a more
@@ -545,8 +547,8 @@ class WalkForwardMultiple(TestSet):
         return sub
 
     def on_test_completed(self, results):
-        if self.oos_tests:
-            if any(results.test == oos_test or results.test.params == oos_test.params for oos_test in self.oos_tests):
+        if self.oos_combined:
+            if any(results.test == oos_test or results.test.params == oos_test.params for oos_test in self.oos_combined):
                 return
 
         for wf in self.walk_forwards:

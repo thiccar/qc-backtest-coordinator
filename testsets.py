@@ -257,6 +257,7 @@ class TestResult:
         ts = self.bt_result["charts"]["Strategy Equity"]["Series"]["Equity"]["Values"]
         df = pd.DataFrame(ts)
         df["x"] = pd.to_datetime(df["x"], unit="s", utc=True)  # See BaseResultsHandler.Sample() in LEAN for UTC
+        df["x"] = df["x"].dt.tz_convert("America/New_York")
         df.set_index("x", inplace=True)
 
         return df["y"]

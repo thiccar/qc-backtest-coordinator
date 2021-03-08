@@ -97,9 +97,9 @@ class Analysis:
             e = r.bt_result["charts"]["Strategy Equity"]["Series"]["Equity"]["Values"]
             last_date = datetime.fromtimestamp(e[-1]["x"])
             if r.test.end - last_date > timedelta(days=7):
-                rows.append([i, r.test.name, last_date, json.dumps(r.test.params)])
+                rows.append([i, r.test.name, last_date, r.bt_result["nodeName"], json.dumps(r.test.params)])
 
-        headers = ["index", "name", "last_date", "params"]
+        headers = ["index", "name", "last_date", "node", "params"]
         return tabulate(rows, headers=headers)
 
     def error_logs(self):

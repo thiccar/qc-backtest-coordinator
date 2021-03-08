@@ -323,11 +323,11 @@ class MultiPeriod(TestSet):
 
 
 class MultiPeriodYearly(MultiPeriod):
-    def __init__(self, start_year: int, years: int, params: dict, extraneous_params=None):
+    def __init__(self, start_year: int, years: int, params: dict, interval_years=1, extraneous_params=None):
         periods = []
-        for i in range(start_year, start_year + years):
+        for i in range(start_year, start_year + years, interval_years):
             start = date(i, 1, 1)
-            end = start.replace(year=start.year + 1) - timedelta(days=1)
+            end = start.replace(year=start.year + interval_years) - timedelta(days=1)
             periods.append((start, end))
         super().__init__(periods, params, extraneous_params=None)
 

@@ -329,7 +329,7 @@ class MultiPeriodYearly(MultiPeriod):
             start = date(i, 1, 1)
             end = start.replace(year=start.year + interval_years) - timedelta(days=1)
             periods.append((start, end))
-        super().__init__(periods, params, extraneous_params=None)
+        super().__init__(periods, params, extraneous_params=extraneous_params)
 
 
 class MultiPeriodInterval(MultiPeriod):
@@ -341,7 +341,7 @@ class MultiPeriodInterval(MultiPeriod):
             end = start + interval
             periods.append((start, end))
             start = end + timedelta(days=1)
-        super().__init__(periods, params, extraneous_params=None)
+        super().__init__(periods, params, extraneous_params=extraneous_params)
 
 
 class ParamSignificance(TestSet):

@@ -46,7 +46,7 @@ class CoordinatorIO:
 
     def write_test_result(self, result: TestResult):
         assert not self.read_only
-        result.test.state = TestState.COMPLETED
+        assert result.test.state == TestState.COMPLETED
         result_path = self.test_result_path(result.test)
         with result_path.open('w') as f:
             json.dump(result.to_dict(), f, indent=4)

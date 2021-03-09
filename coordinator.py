@@ -200,9 +200,11 @@ class Coordinator:
 
     def save_test_result(self, test):
         """Download result for completed test and save it, also mark test state as completed."""
+        already_saved = False
         try:
             result = self.cio.read_test_result(test)  # See if already stored result locally
             if result:
+                already_saved = True
                 self.logger.info(f"{test.name} completed and result already downloaded")
             else:
                 self.logger.info(f"{test.name} completed, downloading result, attempt={test.read_backtest_attempts}")
@@ -212,13 +214,20 @@ class Coordinator:
                 # We'll try again later.
                 if read_backtest_resp["success"]:
                     result = TestResult(test, read_backtest_resp["backtest"])
-                    self.cio.write_test_result(result)
-        except TestResultValidationException:
-            # Sometimes results aren't available right away, so we have retries here.
-            # TODO: Can we do this in a smarter way?
+
+                self.test_set.on_test_completed(result)  # Test set can validate result too
+                test.state = TestState.COMPLETED
+                self.cio.write_test_result(result)
+                test.result_saved = True
+        except TestResultValidationException as e:
+            # Unsupported case: We have already saved the result but it fails validation.  Don't try to clean up, just
+            # fail loudly.
+            if already_saved:
+                raise
+
             test.read_backtest_attempts += 1
-            self.logger.error(f"{test.name} api result fail validation, attempts={test.read_backtest_attempts}")
-            if test.read_backtest_attempts >= 40:
+            self.logger.error(f"{test.name} validation exc retriable={e.retriable} attempts={test.read_backtest_attempts}")
+            if not e.retriable or test.read_backtest_attempts >= 40:
                 # Assume by this point that it will never work, rename it and set state to created so it will be
                 # launched in next loop iteration
                 self.logger.error(f"giving up on read_backtest for {test.name}, will relaunch it")
@@ -227,11 +236,6 @@ class Coordinator:
                     test.backtest_id = None
                     test.state = TestState.CREATED
                     test.read_backtest_attempts = 0
-            result = None
-
-        if result:
-            self.test_set.on_test_completed(result)
-            test.result_saved = True
 
     def save_test_log(self, test):
         if self.cio.test_log_exists(test):

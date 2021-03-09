@@ -89,7 +89,12 @@ class Test:
 
 
 class TestResultValidationException(Exception):
-    pass
+    """Sometimes results aren't available right away, so we have retries here.  Other times there is an actual issue
+    that affected the running of the test so the results are completely invalid.  In which case, the only recourse is to
+    re-run the test.
+    """
+    def __init__(self, retriable=True):
+        self.retriable = retriable
 
 
 class TestResult:

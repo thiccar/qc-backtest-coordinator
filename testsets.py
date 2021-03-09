@@ -378,10 +378,10 @@ class ParamSignificance(TestSet):
 
 
 class GridSearch(TestSet):
-    def __init__(self, periods: list, param_grids: list, params_filter=None, extraneous_params=None):
+    def __init__(self, periods: list, param_grids: list, params_filter_fn=None, extraneous_params=None):
         self.periods = periods
         self.param_grids = param_grids
-        self.params_filter = params_filter
+        self.params_filter_fn = params_filter_fn
         self.extraneous_params = extraneous_params
 
     def name(self):
@@ -394,7 +394,7 @@ class GridSearch(TestSet):
         for (start, end) in self.periods:
             for param_grid in self.param_grids:
                 for params in ParameterGrid(param_grid):
-                    if not self.params_filter or self.params_filter(params):
+                    if not self.params_filter_fn or self.params_filter_fn(params):
                         params["start"] = start.isoformat()
                         params["end"] = end.isoformat()
                         name = Test.generate_name(f"{format(num, '05d')}_{start.isoformat()}_{end.isoformat()}", params)

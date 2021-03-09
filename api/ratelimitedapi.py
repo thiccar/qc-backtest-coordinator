@@ -99,7 +99,7 @@ class RateLimitedApi(Api):
             if read_compile_resp["state"] == "BuildSuccess":
                 return compile_id
             else:
-                print(f"compile state={read_compile_resp['state']}")
+                logger.info(f"compile state={read_compile_resp['state']}")
                 attempt += 1
                 create_compile_resp = self.create_compile(project_id)
 

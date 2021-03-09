@@ -194,7 +194,8 @@ class Coordinator:
         if not test.result_saved:
             self.save_test_result(test)
 
-        if not test.log_saved:
+        # Only want to save test log once result has been validated and saved
+        if test.result_saved and not test.log_saved:
             self.save_test_log(test)
 
     def save_test_result(self, test):

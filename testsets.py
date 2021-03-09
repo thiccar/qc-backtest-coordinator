@@ -477,7 +477,7 @@ class WalkForwardSingle(TestSet):
                     yield Test(name, params, extraneous_params=self.extraneous_params)
 
     def are_ins_tests_complete(self):
-        return all(r is not None for (_, r, _) in self.ins_tests.values())
+        return all(r is not None for (_, r) in self.ins_tests.values())
 
     def on_test_completed(self, result):
         if self.validation_fn:

@@ -378,11 +378,13 @@ class ParamSignificance(TestSet):
 
 
 class GridSearch(TestSet):
-    def __init__(self, periods: list, param_grids: list, params_filter_fn=None, extraneous_params=None):
+    def __init__(self, periods: list, param_grids: list, params_filter_fn=None, extraneous_params=None,
+                 validation_fn=None):
         self.periods = periods
         self.param_grids = param_grids
         self.params_filter_fn = params_filter_fn
         self.extraneous_params = extraneous_params
+        self.validation_fn = validation_fn
 
     def name(self):
         start = self.periods[0][0]
@@ -402,6 +404,9 @@ class GridSearch(TestSet):
                         yield test
                         num += 1
 
+    def on_test_completed(self, result: TestResult):
+        if self.validation_fn:
+            self.validation_fn(result)
 
 class WalkForwardSingle(TestSet):
     """Executes a single "walk forward" step, performing a grid search over the in-sample(INS) period, selecting

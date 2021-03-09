@@ -404,72 +404,85 @@ class GridSearch(TestSet):
 
 
 class WalkForwardSingle(TestSet):
-    """Executes a single "walk forward" step, performing a grid search over the optimization period, selecting
+    """Executes a single "walk forward" step, performing a grid search over the in-sample(INS) period, selecting
     the best parameter set according to the ranking provided by the objective function, and then running that
-    parameter set over the OOS period
+    parameter set over the out-of-sample(OOS) period
     """
     logger = logging.getLogger(f"{__name__}.WalkForwardSingle")
 
     # TODO: Consider using relativedelta here
-    def __init__(self, opt_start: date, opt_months: int, oos_months: int, param_grid: dict,
-                 objective_fn, params_filter=None, extraneous_params=None):
+    def __init__(self, ins_start: date, ins_months: int, oos_months: int, param_grid: dict,
+                 objective_fn, params_filter=None, extraneous_params=None, run_oos_rejects=False):
         """Assumption is that objective_fn produces higher scores for better results"""
-        self.opt_start = opt_start
-        self.opt_months = opt_months
+        self.ins_start = ins_start
+        self.ins_months = ins_months
         self.oos_months = oos_months
-        self.opt_end = self.opt_start + relativedelta(months=self.opt_months) - timedelta(1)
-        self.oos_start = self.opt_end + timedelta(1)
+        self.ins_end = self.ins_start + relativedelta(months=self.ins_months) - timedelta(1)
+        self.oos_start = self.ins_end + timedelta(1)
         self.oos_end = self.oos_start + relativedelta(months=self.oos_months) - timedelta(1)
 
         self.param_grid = param_grid
         self.objective_fn = objective_fn
         self.params_filter = params_filter
         self.extraneous_params = extraneous_params
+        self.run_oos_rejects = run_oos_rejects  # TODO: Better name?
 
-        self.opt_tests = {}
+        self.ins_tests = {}
         self.oos_test = None
 
     def name(self):
-        return f"wf_{self.opt_months}_{self.oos_months}_{self.opt_start}_{self.oos_end}"
+        return f"wf_{self.ins_months}_{self.oos_months}_{self.ins_start}_{self.oos_end}"
 
     def tests(self):
         # First we execute all the optimization tests
+        ins_params = []
         for params in ParameterGrid(self.param_grid):
             if self.params_filter and not self.params_filter(params):
                 continue
-            params["start"] = self.opt_start.isoformat()
-            params["end"] = self.opt_end.isoformat()
-            name = Test.generate_name(f"wf_{self.opt_months}_{self.oos_months}_opt_{self.opt_start}_{self.opt_end}", params)
-            if name in self.opt_tests:
+            ins_params.append(params)
+            params["start"] = self.ins_start.isoformat()
+            params["end"] = self.ins_end.isoformat()
+            name = Test.generate_name(f"wf_{self.ins_months}_{self.oos_months}_ins_{self.ins_start}_{self.ins_end}", params)
+            if name in self.ins_tests:
                 self.logger.info(f"{name} already generated, skipping")
                 continue
             test = Test(name, params, extraneous_params=self.extraneous_params)
-            self.opt_tests[name] = (test, None)
+            self.ins_tests[name] = (test, None)
             yield test
 
         # Until we get all test results back, no-op
-        while True:
-            if all(r is not None for (t, r) in self.opt_tests.values()):
-                break
-            else:
-                yield TestSet.NO_OP
+        while not self.are_ins_tests_complete():
+            yield TestSet.NO_OP
 
         if not self.oos_test:  # Don't want to keep returning the oos test
             self.oos_test = self.generate_oos_test()
             self.logger.info(f"Finished optimization, beginning OOS with best param set: {self.oos_test.to_dict()}")
             yield self.oos_test
 
+        if self.run_oos_rejects:
+            for params in ins_params:
+                params = copy.deepcopy(params)
+                params["start"] = self.oos_start.isoformat()
+                params["end"] = self.oos_end.isoformat()
+                if params != self.oos_test.params:
+                    name = Test.generate_name(f"wf_{self.ins_months}_{self.oos_months}_oosrej_{self.oos_start}_{self.oos_end}", params)
+                    yield Test(name, params, extraneous_params=self.extraneous_params)
+
+    def are_ins_tests_complete(self):
+        return all(r is not None for (_, r, _) in self.ins_tests.values())
+
     def on_test_completed(self, result):
-        self.opt_tests[result.test.name] = (result.test, self.objective_fn(result))
+        if "_ins" in result.test.name:
+            self.ins_tests[result.test.name] = (result.test, self.objective_fn(result))
 
     def generate_oos_test(self):
-        obj_values = [obj_val for (test, obj_val) in self.opt_tests.values()]
-        best_opt_test, best_opt_obj_val = max(self.opt_tests.values(), key=lambda tup: tup[1])
-        self.logger.info(f"max={best_opt_obj_val} obj_values={obj_values}")
-        params = copy.deepcopy(best_opt_test.params)
+        obj_values = [obj_val for (test, obj_val) in self.ins_tests.values()]
+        best_ins_test, best_ins_obj_val = max(self.ins_tests.values(), key=lambda tup: tup[1])
+        self.logger.info(f"max={best_ins_obj_val} obj_values={obj_values}")
+        params = copy.deepcopy(best_ins_test.params)
         params["start"] = self.oos_start.isoformat()
         params["end"] = self.oos_end.isoformat()
-        name = Test.generate_name(f"wf_{self.opt_months}_{self.oos_months}_oos_{self.oos_start}_{self.oos_end}", params)
+        name = Test.generate_name(f"wf_{self.ins_months}_{self.oos_months}_ooswf_{self.oos_start}_{self.oos_end}", params)
         return Test(name, params, extraneous_params=self.extraneous_params)
 
 
@@ -477,24 +490,25 @@ class WalkForwardMultiple(TestSet):
     logger = logging.getLogger(__name__)
 
     # TODO: Consider using relativedelta here
-    def __init__(self, start: date, end: date, opt_months: int, oos_months: int, param_grid: dict,
-                 objective_fn, params_filter=None, extraneous_params={}, launch_combined=False):
-        assert opt_months != oos_months, "Use different (ideally higher) optimization window from oos window"
+    def __init__(self, start: date, end: date, ins_months: int, oos_months: int, param_grid: dict,
+                 objective_fn, params_filter=None, extraneous_params={}, launch_combined=False, run_oos_rejects=False):
+        assert ins_months != oos_months, "Use different (ideally higher) optimization window from oos window"
         self.start = start
         self.end = end
-        self.opt_months = opt_months
+        self.ins_months = ins_months
         self.oos_months = oos_months
         self.param_grid = param_grid
         self.objective_fn = objective_fn
         self.params_filter = params_filter
         self.extraneous_params = extraneous_params
         self.launch_combined = launch_combined
+        self.run_oos_rejects = run_oos_rejects
 
         self.walk_forwards = self.sub_tests()
         self.oos_combined = None
 
     def name(self):
-        return f"wf_{self.opt_months}_{self.oos_months}_{self.start.isoformat()}_{self.end.isoformat()}"
+        return f"wf_{self.ins_months}_{self.oos_months}_{self.start.isoformat()}_{self.end.isoformat()}"
 
     def tests(self):
         """Currently this runs all tests from one walk forward step before beginning any from the next step.  This is
@@ -508,7 +522,7 @@ class WalkForwardMultiple(TestSet):
                 if test != self.NO_OP:
                     test.extraneous_params["logLevel"] = "INFO"
                 yield test
-            self.logger.info(f"Finished all tests for walk forward opt={wf.opt_start} - {wf.opt_end}"
+            self.logger.info(f"Finished all tests for walk forward opt={wf.ins_start} - {wf.ins_end}"
                              f" oos={wf.oos_start} - {wf.oos_end}")
 
         if self.launch_combined:
@@ -530,10 +544,10 @@ class WalkForwardMultiple(TestSet):
         # The combined OOS test takes a long time to run so we leave debug logging on for it
         loglevel = {"logLevel": "DEBUG"}
 
-        combined_name = Test.generate_name(f"wf_{self.opt_months}_{self.oos_months}_oos_{start}_{end}", params_list)
+        combined_name = Test.generate_name(f"wf_{self.ins_months}_{self.oos_months}_oos_{start}_{end}", params_list)
         combined = Test(combined_name, params_list, extraneous_params={**self.extraneous_params, **loglevel})
 
-        combined_mt_name = Test.generate_name(f"wf_{self.opt_months}_{self.oos_months}_oosmt_{start}_{end}", params_list)
+        combined_mt_name = Test.generate_name(f"wf_{self.ins_months}_{self.oos_months}_oosmt_{start}_{end}", params_list)
         mt_extraneous = {"margin": {"rate": 0.01}, "tax": {"rate": 0.4}}
         combined_mt = Test(combined_mt_name, params_list,
                            extraneous_params={**self.extraneous_params, **loglevel, **mt_extraneous})
@@ -542,13 +556,13 @@ class WalkForwardMultiple(TestSet):
 
     def sub_tests(self):
         sub = []
-        opt_start = self.start
-        while opt_start + relativedelta(months=self.opt_months) - timedelta(1) <= self.end:
-            wfs = WalkForwardSingle(opt_start, self.opt_months, self.oos_months, self.param_grid,
-                                    self.objective_fn, self.params_filter, self.extraneous_params)
+        ins_start = self.start
+        while ins_start + relativedelta(months=self.ins_months) - timedelta(1) <= self.end:
+            wfs = WalkForwardSingle(ins_start, self.ins_months, self.oos_months, self.param_grid,
+                                    self.objective_fn, self.params_filter, self.extraneous_params, self.run_oos_rejects)
             sub.append(wfs)
 
-            opt_start += relativedelta(months=self.oos_months)
+            ins_start += relativedelta(months=self.oos_months)
 
         return sub
 
@@ -560,7 +574,7 @@ class WalkForwardMultiple(TestSet):
         for wf in self.walk_forwards:
             # Implicit assumption here is that opt window size and oos window size are different (one of the reasons
             # for the assert statement in constructor).
-            if ((results.test.start.date() == wf.opt_start and results.test.end.date() == wf.opt_end)
+            if ((results.test.start.date() == wf.ins_start and results.test.end.date() == wf.ins_end)
                     or (results.test.start.date() == wf.oos_start and results.test.end.date() == wf.oos_end)):
                 wf.on_test_completed(results)
                 return

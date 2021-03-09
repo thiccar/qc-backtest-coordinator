@@ -143,8 +143,8 @@ class Analysis:
         return tabulate(table, headers=headers)
 
     @classmethod
-    def wfa_grouped_results(cls, results):
-        oos_sorted = list(sorted([r for r in results if "_oos_" in r.test.name], key=lambda r: r.test.start))
+    def wfa_grouped_results(cls, results, ins_marker="_ins_", oos_wf_marker="_ooswf_", oos_rej_marker="_oosrej_"):
+        oos_sorted = list(sorted([r for r in results if oos_wf_marker in r.test.name], key=lambda r: r.test.start))
 
         combined_start = oos_sorted[0].test.start
         combined_end = oos_sorted[-1].test.end
@@ -155,12 +155,12 @@ class Analysis:
         if oos_combined:
             oos_sorted.remove(oos_combined)
 
-        opt_grouped = itertools.groupby([r for r in results if "_opt_" in r.test.name], key=lambda r: r.test.start)
-        opt_sorted = sorted([(d, list(g)) for (d, g) in opt_grouped], key=lambda tup: tup[0])
-        wfa_results = [(opt_results, oos_result) for ((_, opt_results), oos_result) in zip(opt_sorted, oos_sorted)]
+        ins_grouped = itertools.groupby([r for r in results if ins_marker in r.test.name], key=lambda r: r.test.start)
+        ins_sorted = sorted([(d, list(g)) for (d, g) in ins_grouped], key=lambda tup: tup[0])
+        wfa_results = [(ins_results, oos_result) for ((_, ins_results), oos_result) in zip(ins_sorted, oos_sorted)]
 
-        for (opt_results, oos_result) in wfa_results:
-            assert oos_result.test.start == opt_results[0].test.end + timedelta(1)
+        for (ins_results, oos_result) in wfa_results:
+            assert oos_result.test.start == ins_results[0].test.end + timedelta(1)
 
         # TODO: Consider creating a class to group together this information
         return wfa_results
@@ -168,18 +168,18 @@ class Analysis:
     @classmethod
     def wfa_summary_statistics(cls, wfa_results, oos_combined, objective_fn):
         """Return a formatted table with WFA summary statistics a la Pardo (see https://pasteboard.co/JMmVgHk.png)"""
-        headers = ["", "Opt\nStart", "Opt\nEnd", "Best Opt P/L\nAnnualized", "Best Opt\nMax Drawdown", "OOS\nStart",
+        headers = ["", "INS\nStart", "INS\nEnd", "Best INS P/L\nAnnualized", "Best INS\nMax Drawdown", "OOS\nStart",
                    "OOS\nEnd", "Net P/L", "Net P/L\nAnnualized", "Max\nDrawdown", "ROMAD\nAnnualized", "Win %",
                    "Walk-Forward\nEfficiency", "Sortino\nRatio", "Sharpe\nRatio", "PSR", "OOS Params"]
         table = []
-        for (opt_results, oos_result) in wfa_results:
-            best_opt = max(opt_results, key=objective_fn)
+        for (ins_results, oos_result) in wfa_results:
+            best_ins = max(ins_results, key=objective_fn)
             row = [
                 None,
-                best_opt.test.start.date(),
-                best_opt.test.end.date(),
-                best_opt.annualized_net_profit(),
-                round(best_opt.drawdown(), 3),
+                best_ins.test.start.date(),
+                best_ins.test.end.date(),
+                best_ins.annualized_net_profit(),
+                round(best_ins.drawdown(), 3),
                 oos_result.test.start.date(),
                 oos_result.test.end.date(),
                 oos_result.net_profit(),
@@ -187,7 +187,7 @@ class Analysis:
                 oos_result.drawdown(),
                 oos_result.annualized_return_over_max_drawdown(),
                 oos_result.win_rate(),
-                oos_result.annualized_net_profit() / best_opt.annualized_net_profit(),
+                oos_result.annualized_net_profit() / best_ins.annualized_net_profit(),
                 oos_result.sortino_ratio(),
                 oos_result.sharpe_ratio(),
                 oos_result.probabilistic_sharpe_ratio(),
@@ -195,12 +195,12 @@ class Analysis:
             ]
             table.append(row)
 
-        mean_opt_annualized_pl = statistics.mean(r[3] for r in table)
-        max_opt_drawdown = max(r[4] for r in table)
+        mean_ins_annualized_pl = statistics.mean(r[3] for r in table)
+        max_ins_drawdown = max(r[4] for r in table)
         summary = [
             "Aggregate", "", "",
-            mean_opt_annualized_pl,
-            max_opt_drawdown,
+            mean_ins_annualized_pl,
+            max_ins_drawdown,
             wfa_results[0][1].test.start.date(), wfa_results[-1][1].test.end.date(),
             sum(r[7] for r in table),
             statistics.mean(r[8] for r in table),
@@ -217,15 +217,15 @@ class Analysis:
         if oos_combined:
             combined = [
                 "Combined", "", "",
-                mean_opt_annualized_pl,
-                max_opt_drawdown,
+                mean_ins_annualized_pl,
+                max_ins_drawdown,
                 wfa_results[0][1].test.start.date(), wfa_results[-1][1].test.end.date(),
                 oos_combined.net_profit(),
                 oos_combined.annualized_net_profit(),
                 oos_combined.drawdown(),
                 oos_combined.annualized_return_over_max_drawdown(),
                 oos_combined.win_rate(),
-                oos_combined.annualized_net_profit() / mean_opt_annualized_pl,
+                oos_combined.annualized_net_profit() / mean_ins_annualized_pl,
                 oos_combined.sortino_ratio(),
                 oos_combined.sharpe_ratio(),
                 oos_combined.probabilistic_sharpe_ratio(),
@@ -298,8 +298,8 @@ class Analysis:
     @classmethod
     def oos_walk_forward_efficiency(cls, wfa_results, objective_fn):
         wfe = []
-        for (opt_results, oos_result) in wfa_results:
-            best_opt = max(opt_results, key=objective_fn)
+        for (ins_results, oos_result) in wfa_results:
+            best_opt = max(ins_results, key=objective_fn)
             wfe.append(oos_result.annualized_net_profit() / best_opt.annualized_net_profit())
         return wfe
 
@@ -318,7 +318,7 @@ class Analysis:
 
     @classmethod
     def oos_vs_is(cls, wfa_results, metric_fn):
-        ins_metrics = [[metric_fn(r) for r in opt_results] for (opt_results, _) in wfa_results]
+        ins_metrics = [[metric_fn(r) for r in ins_results] for (ins_results, _) in wfa_results]
         oos_metrics = [metric_fn(oos_result) for (_, oos_result) in wfa_results]
         percentiles = [percentileofscore(ins, oos) for (ins, oos) in zip(ins_metrics, oos_metrics)]
         return ins_metrics, oos_metrics, percentiles

@@ -284,6 +284,7 @@ class TestResult:
         h, m, s = hms.split(":")
         return pd.Timedelta(days=int(days), hours=int(h), minutes=int(m), seconds=int(s))
 
+
 class TestSet(ABC):
     NO_OP = Test("no-op", None)  # Returned when don't have a new test yet, but are not done generating tests.
 

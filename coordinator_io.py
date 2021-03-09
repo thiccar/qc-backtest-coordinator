@@ -87,7 +87,5 @@ class CoordinatorIO:
     def write_state(self, state):
         """Serialize given object to JSON and write to state file"""
         assert not self.read_only
-        # We assume here that the serialized state is always growing, so there is no risk of writing
-        # new file with fewer bytes than previous
         with self.state_path.open('w') as f:
             json.dump(state, f, indent=4)

@@ -483,7 +483,7 @@ class WalkForwardSingle(TestSet):
         if self.validation_fn:
             self.validation_fn(result)
 
-        if "_ins" in result.test.name:
+        if "_ins_" in result.test.name:
             self.ins_tests[result.test.name] = (result.test, self.objective_fn(result))
 
     def generate_oos_test(self):

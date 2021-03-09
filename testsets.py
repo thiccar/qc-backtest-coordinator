@@ -302,7 +302,7 @@ class TestSet(ABC):
         """Return a generator that yields Test objects"""
         pass
     
-    def on_test_completed(self, results: TestResult):
+    def on_test_completed(self, result: TestResult):
         pass
 
 
@@ -566,15 +566,15 @@ class WalkForwardMultiple(TestSet):
 
         return sub
 
-    def on_test_completed(self, results):
+    def on_test_completed(self, result):
         if self.oos_combined:
-            if any(results.test == oos_test or results.test.params == oos_test.params for oos_test in self.oos_combined):
+            if any(result.test == oos_test or result.test.params == oos_test.params for oos_test in self.oos_combined):
                 return
 
         for wf in self.walk_forwards:
             # Implicit assumption here is that opt window size and oos window size are different (one of the reasons
             # for the assert statement in constructor).
-            if ((results.test.start.date() == wf.ins_start and results.test.end.date() == wf.ins_end)
-                    or (results.test.start.date() == wf.oos_start and results.test.end.date() == wf.oos_end)):
-                wf.on_test_completed(results)
+            if ((result.test.start.date() == wf.ins_start and result.test.end.date() == wf.ins_end)
+                    or (result.test.start.date() == wf.oos_start and result.test.end.date() == wf.oos_end)):
+                wf.on_test_completed(result)
                 return

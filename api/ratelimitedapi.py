@@ -44,6 +44,17 @@ class RateLimitedApi(Api):
         project_list = self.list_projects()
         return next((p for p in project_list["projects"] if p["name"] == name), None)
 
+    def get_backtest_by_name(self, project_id, name):
+        backtest_resp = self.list_backtests(project_id)
+        backtests = backtest_resp["backtests"]
+
+        match = [bt for bt in backtests if bt["name"] == name]
+        if not match:
+            return None
+        if len(match) == 1:
+            return match[0]
+        return match
+
     def read_parameters_file(self, project_id):
         file_resp = self.read_project_file(project_id, "parameters.py")
         if file_resp["success"]:

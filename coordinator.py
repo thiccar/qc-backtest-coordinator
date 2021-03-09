@@ -215,11 +215,12 @@ class Coordinator:
                 if read_backtest_resp["success"]:
                     result = TestResult(test, read_backtest_resp["backtest"])
 
-            self.test_set.on_test_completed(result)  # Test set can validate result too
-            test.state = TestState.COMPLETED
-            if not already_saved:
-                self.cio.write_test_result(result)
-            test.result_saved = True
+            if result:
+                self.test_set.on_test_completed(result)  # Test set can validate result too
+                test.state = TestState.COMPLETED
+                if not already_saved:
+                    self.cio.write_test_result(result)
+                test.result_saved = True
         except TestResultValidationException as e:
             # Unsupported case: We have already saved the result but it fails validation.  Don't try to clean up, just
             # fail loudly.

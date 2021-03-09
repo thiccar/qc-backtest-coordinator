@@ -502,7 +502,7 @@ class WalkForwardMultiple(TestSet):
 
     # TODO: Consider using relativedelta here
     def __init__(self, start: date, end: date, ins_months: int, oos_months: int, param_grid: dict,
-                 objective_fn, params_filter_fn=None, validation_fn=None, extraneous_params={}, launch_combined=False,
+                 objective_fn, params_filter_fn=None, validation_fn=None, extraneous_params={}, run_combined=False,
                  run_oos_rejects=False):
         assert ins_months != oos_months, "Use different (ideally higher) optimization window from oos window"
         self.start = start
@@ -514,7 +514,7 @@ class WalkForwardMultiple(TestSet):
         self.params_filter_fn = params_filter_fn
         self.validation_fn = validation_fn
         self.extraneous_params = extraneous_params
-        self.launch_combined = launch_combined
+        self.run_combined = run_combined
         self.run_oos_rejects = run_oos_rejects
 
         self.walk_forwards = self.sub_tests()
@@ -538,7 +538,7 @@ class WalkForwardMultiple(TestSet):
             self.logger.info(f"Finished all tests for walk forward opt={wf.ins_start} - {wf.ins_end}"
                              f" oos={wf.oos_start} - {wf.oos_end}")
 
-        if self.launch_combined:
+        if self.run_combined:
             self.logger.info("Launching combined oos backtest")
             self.oos_combined = self.generate_oos_combined()
             for test in self.oos_combined:

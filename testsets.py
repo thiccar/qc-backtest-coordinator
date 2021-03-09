@@ -408,6 +408,7 @@ class GridSearch(TestSet):
         if self.validation_fn:
             self.validation_fn(result)
 
+
 class WalkForwardSingle(TestSet):
     """Executes a single "walk forward" step, performing a grid search over the in-sample(INS) period, selecting
     the best parameter set according to the ranking provided by the objective function, and then running that
@@ -417,7 +418,8 @@ class WalkForwardSingle(TestSet):
 
     # TODO: Consider using relativedelta here
     def __init__(self, ins_start: date, ins_months: int, oos_months: int, param_grid: dict,
-                 objective_fn, params_filter_fn=None, extraneous_params=None, run_oos_rejects=False):
+                 objective_fn, params_filter_fn=None, validation_fn=None, extraneous_params=None,
+                 run_oos_rejects=False):
         """Assumption is that objective_fn produces higher scores for better results"""
         self.ins_start = ins_start
         self.ins_months = ins_months
@@ -428,6 +430,7 @@ class WalkForwardSingle(TestSet):
 
         self.param_grid = param_grid
         self.objective_fn = objective_fn
+        self.validation_fn = validation_fn
         self.params_filter_fn = params_filter_fn
         self.extraneous_params = extraneous_params
         self.run_oos_rejects = run_oos_rejects  # TODO: Better name?
@@ -477,6 +480,9 @@ class WalkForwardSingle(TestSet):
         return all(r is not None for (_, r, _) in self.ins_tests.values())
 
     def on_test_completed(self, result):
+        if self.validation_fn:
+            self.validation_fn(result)
+
         if "_ins" in result.test.name:
             self.ins_tests[result.test.name] = (result.test, self.objective_fn(result))
 
@@ -496,7 +502,8 @@ class WalkForwardMultiple(TestSet):
 
     # TODO: Consider using relativedelta here
     def __init__(self, start: date, end: date, ins_months: int, oos_months: int, param_grid: dict,
-                 objective_fn, params_filter_fn=None, extraneous_params={}, launch_combined=False, run_oos_rejects=False):
+                 objective_fn, params_filter_fn=None, validation_fn=None, extraneous_params={}, launch_combined=False,
+                 run_oos_rejects=False):
         assert ins_months != oos_months, "Use different (ideally higher) optimization window from oos window"
         self.start = start
         self.end = end
@@ -505,6 +512,7 @@ class WalkForwardMultiple(TestSet):
         self.param_grid = param_grid
         self.objective_fn = objective_fn
         self.params_filter_fn = params_filter_fn
+        self.validation_fn = validation_fn
         self.extraneous_params = extraneous_params
         self.launch_combined = launch_combined
         self.run_oos_rejects = run_oos_rejects
@@ -564,7 +572,8 @@ class WalkForwardMultiple(TestSet):
         ins_start = self.start
         while ins_start + relativedelta(months=self.ins_months) - timedelta(1) <= self.end:
             wfs = WalkForwardSingle(ins_start, self.ins_months, self.oos_months, self.param_grid,
-                                    self.objective_fn, self.params_filter_fn, self.extraneous_params, self.run_oos_rejects)
+                                    self.objective_fn, self.params_filter_fn, self.validation_fn,
+                                    self.extraneous_params, self.run_oos_rejects)
             sub.append(wfs)
 
             ins_start += relativedelta(months=self.oos_months)

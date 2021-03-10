@@ -175,12 +175,13 @@ class Coordinator:
                 self.logger.error(f"{test.name} update_parameters_file failed")
                 return
 
-            compile_id = self.api.compile(self.project_id)
-            if not compile_id:
-                self.logger.error(f"{test.name} compile failed")
+            create_compile_resp = self.api.create_compile(self.project_id)
+            if create_compile_resp["success"] and create_compile_resp["state"] in ["BuildSuccess", "InQueue"]:
+                test.compile_id = create_compile_resp["compileId"]
+                test.launch_backtest_attempts = 0
+            else:
+                self.logger.error(f"create_compile failure: {create_compile_resp}")
                 return
-            test.compile_id = compile_id
-            test.launch_backtest_attempts = 0
 
         sleep(3)  # TODO: Do these in parallel.
         create_backtest_resp = self.api.create_backtest(self.project_id, test.compile_id, test.name)

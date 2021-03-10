@@ -12,6 +12,9 @@ logger = logging.getLogger(__name__)
 logging.getLogger("requests").setLevel(logging.WARNING)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
 
+# Mounts HTTPAdapter by default (https://requests.readthedocs.io/en/master/_modules/requests/adapters/).  Means
+# will have 10 pooled connections by default, and will create more instead of blocking waiting for a connection from
+# the pool.  This should be more than sufficient.
 session = requests.Session()
 
 
@@ -83,25 +86,6 @@ class RateLimitedApi(Api):
             return False
 
         return update_resp["success"]
-    
-    def compile(self, project_id, retries=5):
-        """returns compile_id or None"""
-        create_compile_resp = self.create_compile(project_id)
-        attempt = 0
-        while attempt < retries:
-            if not create_compile_resp["success"]:
-                return None
-            compile_id = create_compile_resp["compileId"]
-            sleep(3)
-            read_compile_resp = self.read_compile(project_id, compile_id)
-            if not read_compile_resp["success"]:
-                return None
-            if read_compile_resp["state"] == "BuildSuccess":
-                return compile_id
-            else:
-                logger.info(f"compile state={read_compile_resp['state']}")
-                attempt += 1
-                create_compile_resp = self.create_compile(project_id)
 
     def read_backtest_log(self, project_id, backtest_id):
         """Read the log of a backtest in the project id specified.

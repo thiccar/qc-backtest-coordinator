@@ -103,6 +103,11 @@ class Analysis:
         return tabulate(rows, headers=headers)
 
     def error_logs(self):
+        search = [
+            "[ERROR]",
+            "log data per backtest",
+            "Please upgrade your account",
+        ]
         mapping = {}
         for t in self.tests():
             # Allows us to run this while backtests are running to see intermediate results
@@ -111,7 +116,7 @@ class Analysis:
             errors = []
             log = self.cio.read_test_log(t)
             for line in log:
-                if "[ERROR]" in line:
+                if any(s in line for s in search):
                     errors.append(line)
             if errors:
                 mapping[t] = errors

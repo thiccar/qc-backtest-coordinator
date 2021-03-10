@@ -1,7 +1,7 @@
 import json
 import logging
 from ratelimit import limits, RateLimitException
-from time import sleep
+import threading
 
 from backoff import on_exception, expo
 import quantconnect
@@ -12,20 +12,21 @@ logger = logging.getLogger(__name__)
 logging.getLogger("requests").setLevel(logging.WARNING)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
 
-# Mounts HTTPAdapter by default (https://requests.readthedocs.io/en/master/_modules/requests/adapters/).  Means
-# will have 10 pooled connections by default, and will create more instead of blocking waiting for a connection from
-# the pool.  This should be more than sufficient.
-session = requests.Session()
+thread_local = threading.local()
 
 
 def post(**kwargs):
+    if not hasattr(thread_local, "session"):
+        thread_local.session = requests.Session()
     new_kwargs = {**kwargs, **{"timeout": 10}}
-    return session.post(**new_kwargs)
+    return thread_local.session.post(**new_kwargs)
 
 
 def get(**kwargs):
+    if not hasattr(thread_local, "session"):
+        thread_local.session = requests.Session()
     new_kwargs = {**kwargs, **{"timeout": 10}}
-    return session.get(**new_kwargs)
+    return thread_local.session.get(**new_kwargs)
 
 
 setattr(quantconnect.api, "get", get)

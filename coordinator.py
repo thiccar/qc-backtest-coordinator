@@ -1,4 +1,6 @@
+import asyncio
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 import logging
 from pathlib import Path
 from time import sleep
@@ -28,6 +30,9 @@ class Coordinator:
         self.backtests = []  # List of backtests returned from QC API
         self.backtests_by_name = {}  # Helper data structure to make lookup by name faster
         self.state_counter = Counter()
+
+        self.io_tpe = ThreadPoolExecutor(thread_name_prefix="io_tpe")
+        self.compile_lock = asyncio.Lock()
 
     def initialize(self):
         project_name = self.config["project_name"]
@@ -88,7 +93,7 @@ class Coordinator:
 
                 test.backtest_id = existing_bt["backtestId"]
                 if existing_bt["completed"]:
-                    self.on_test_completed(test)
+                    test.state = TestState.COMPLETED
                 else:
                     test.state = TestState.RUNNING
         else:
@@ -96,16 +101,15 @@ class Coordinator:
                 self.logger.warning(f"Inconsistent state, thought {test.name} was launched, was not")
             test.state = TestState.CREATED
 
-    def run(self):
+    async def run(self):
         self.initialize()
         concurrency = self.config["concurrency"]
         test_generator = self.test_set.tests()
         try:
             while True:
-                if not self.update_tests_state_from_api():
+                while not self.update_tests_state_from_api():
                     self.logger.error("Error updating tests state from API")
-                    sleep(15)
-                    continue
+                    await asyncio.sleep(15)
 
                 self.logger.info(f"generator_done={self.generator_done} generated_cnt={self.generated_cnt} "
                                  f"len(tests)={len(self.tests)} "
@@ -114,10 +118,25 @@ class Coordinator:
                         and self.state_counter[TestState.RUNNING] == 0):
                     break
 
+                on_completed_tasks = []
+                for test in self.tests:
+                    if test.state == TestState.COMPLETED and not (test.result_saved and test.log_saved):
+                        on_completed_tasks.append(asyncio.create_task(self.on_test_completed(test)))
+                # Await here in case any tests had errors and go back to CREATED state
+                self.logger.debug(f"Awaiting {len(on_completed_tasks)} on_completed tasks")
+                await asyncio.gather(*on_completed_tasks)
+
                 limit = concurrency - self.state_counter[TestState.RUNNING]
-                launched = 0
-                self.logger.debug(f"Launching up to {limit} new tests")
-                while launched < limit and (self.state_counter[TestState.CREATED] or not self.generator_done):
+                launched_tasks = []
+                created_tests = [t for t in self.tests if t.state == TestState.CREATED]
+                self.logger.debug(f"Launching up to {limit} new tests, queued={len(created_tests)}")
+                for test in created_tests:
+                    if len(launched_tasks) >= limit:
+                        break
+
+                    launched_tasks.append(asyncio.create_task(self.launch_test(test)))
+
+                while len(launched_tasks) < limit and not self.generator_done:
                     test = self.get_next_test(test_generator)
                     if test is None:
                         self.generator_done = True
@@ -130,14 +149,10 @@ class Coordinator:
                     if test.state != TestState.CREATED:
                         self.logger.info(f"{test.name} was previously launched")
                     else:
-                        self.launch_test(test)
-                        launched += 1
-                        
-                    self.save_state()
-                
-                if launched > 0 or self.state_counter[TestState.RUNNING] > 0 or test == TestSet.NO_OP:
-                    self.logger.info("Sleeping for 15 secs")
-                    sleep(15)
+                        launched_tasks.append(asyncio.create_task(self.launch_test(test)))
+
+                self.logger.debug(f"Awaiting {len(launched_tasks)} launched tasks and 15 sec sleep")
+                await asyncio.gather(*launched_tasks, asyncio.sleep(15))
 
             self.save_state()
             self.logger.info("generating report")
@@ -146,11 +161,6 @@ class Coordinator:
             self.logger.error("Unhandled error", exc_info=exc)
 
     def get_next_test(self, generator):
-        test = next((t for t in self.tests if t.state == TestState.CREATED), None)
-        if test:
-            self.logger.info(f"Returning queued test {test.name}")
-            return test
-
         while True:
             test = next(generator, None)
             if not test or test == TestSet.NO_OP:
@@ -167,52 +177,59 @@ class Coordinator:
                 self.tests.append(test)
                 return test
 
-    def launch_test(self, test):
+    async def launch_test(self, test):
         """update parameters file, compile, and launch backtest"""
         if not test.compile_id or test.launch_backtest_attempts > 5:
-            if not self.api.update_parameters_file(self.project_id, self.initial_parameters_file, test.params,
-                                                   test.extraneous_params):
-                self.logger.error(f"{test.name} update_parameters_file failed")
-                return
+            # Only do 1 compile at a time since we have to change the project code each time.  Most likely lock is not
+            # necessary since this will also have the GIL, but why take chances.
+            async with self.compile_lock:
+                if not self.api.update_parameters_file(self.project_id, self.initial_parameters_file, test.params,
+                                                       test.extraneous_params):
+                    self.logger.error(f"{test.name} update_parameters_file failed")
+                    return
 
-            create_compile_resp = self.api.create_compile(self.project_id)
-            if create_compile_resp["success"] and create_compile_resp["state"] in ["BuildSuccess", "InQueue"]:
-                test.compile_id = create_compile_resp["compileId"]
-                test.launch_backtest_attempts = 0
-            else:
-                self.logger.error(f"create_compile failure: {create_compile_resp}")
-                return
+                create_compile_resp = self.api.create_compile(self.project_id)
+                if create_compile_resp["success"] and create_compile_resp["state"] in ["BuildSuccess", "InQueue"]:
+                    test.compile_id = create_compile_resp["compileId"]
+                    self.logger.info(f"{test.name} compile state={create_compile_resp['state']} compile_id={test.compile_id}")
+                    test.launch_backtest_attempts = 0
+                else:
+                    self.logger.error(f"create_compile failure: {create_compile_resp}")
+                    return
 
-        sleep(3)  # TODO: Do these in parallel.
-        create_backtest_resp = self.api.create_backtest(self.project_id, test.compile_id, test.name)
+        await asyncio.sleep(6)
+        create_backtest_resp = await asyncio.get_running_loop().run_in_executor(
+            self.io_tpe, self.api.create_backtest, self.project_id, test.compile_id, test.name)
         if create_backtest_resp["success"]:
             test.backtest_id = create_backtest_resp["backtest"]["backtestId"]
             test.state = TestState.RUNNING
             self.logger.info(f"{test.name} launched compile_id={test.compile_id} backtest_id={test.backtest_id}")
+            self.save_state()
         else:
             test.launch_backtest_attempts += 1
             self.logger.error(f"{test.name} create_backtest failed compile_id={test.compile_id}")
             self.logger.error(create_backtest_resp)
 
-    def on_test_completed(self, test: Test):
+    async def on_test_completed(self, test: Test):
         if not test.result_saved:
-            self.save_test_result(test)
+            await self.save_test_result(test)
 
         # Only want to save test log once result has been validated and saved
         if test.result_saved and not test.log_saved:
-            self.save_test_log(test)
+            await self.save_test_log(test)
 
-    def save_test_result(self, test):
+    async def save_test_result(self, test):
         """Download result for completed test and save it, also mark test state as completed."""
         already_saved = False
         try:
-            result = self.cio.read_test_result(test)  # See if already stored result locally
+            result = await asyncio.get_running_loop().run_in_executor(self.io_tpe, self.cio.read_test_result, test)
             if result:
                 already_saved = True
-                self.logger.info(f"{test.name} completed and result already downloaded")
+                self.logger.info(f"{test.name} result already downloaded")
             else:
-                self.logger.info(f"{test.name} completed, downloading result, attempt={test.read_backtest_attempts}")
-                read_backtest_resp = self.api.read_backtest(self.project_id, test.backtest_id)
+                self.logger.info(f"{test.name} downloading result, attempt={test.read_backtest_attempts}")
+                read_backtest_resp = await asyncio.get_running_loop().run_in_executor(
+                    self.io_tpe, self.api.read_backtest, self.project_id, test.backtest_id)
 
                 # If read_backtest request fails, or downloaded result fail validation, don't do anything.
                 # We'll try again later.
@@ -223,7 +240,7 @@ class Coordinator:
                 self.test_set.on_test_completed(result)  # Test set can validate result too
                 test.state = TestState.COMPLETED
                 if not already_saved:
-                    self.cio.write_test_result(result)
+                    await asyncio.get_running_loop().run_in_executor(self.io_tpe, self.cio.write_test_result, result)
                 test.result_saved = True
         except TestResultValidationException as e:
             # Unsupported case: We have already saved the result but it fails validation.  Don't try to clean up, just
@@ -237,19 +254,21 @@ class Coordinator:
                 # Assume by this point that it will never work, rename it and set state to created so it will be
                 # launched in next loop iteration
                 self.logger.error(f"giving up on read_backtest for {test.name}, will relaunch it")
-                update_backtest_resp = self.api.update_backtest(self.project_id, test.backtest_id, f"(FAILED) {test.name}")
+                update_backtest_resp = asyncio.get_running_loop().run_in_executor(
+                    self.io_tpe, self.api.update_backtest, self.project_id, test.backtest_id, f"(FAILED) {test.name}")
                 if update_backtest_resp["success"]:
                     test.backtest_id = None
                     test.state = TestState.CREATED
                     test.read_backtest_attempts = 0
 
-    def save_test_log(self, test):
+    async def save_test_log(self, test):
         if self.cio.test_log_exists(test):
             self.logger.info(f"{test.name} log already downloaded")
             test.log_saved = True
             return
 
-        read_log_resp = self.api.read_backtest_log(self.project_id, test.backtest_id)
+        read_log_resp = await asyncio.get_running_loop().run_in_executor(
+            self.io_tpe, self.api.read_backtest_log, self.project_id, test.backtest_id)
         if read_log_resp["success"]:
             self.cio.write_test_log(test, read_log_resp["BacktestLogs"])
             test.log_saved = True

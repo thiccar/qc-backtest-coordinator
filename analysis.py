@@ -335,6 +335,26 @@ class Analysis:
         ax.set_title(f"OOS vs INS {metric_name}")
 
     @classmethod
+    def oos_walk_forward_vs_oos_rejected(cls, wfa_results, metric_fn):
+        oos_rej_metrics = [[metric_fn(r) for r in oos_rej] for (_, _, oos_rej) in wfa_results]
+        oos_wf_metrics = [metric_fn(oos_wf) for (_, oos_wf, _) in wfa_results]
+        percentiles = [percentileofscore(oos_rej, oos) for (oos_rej, oos) in zip(oos_rej_metrics, oos_wf_metrics)]
+        return oos_rej_metrics, oos_wf_metrics, percentiles
+
+    @classmethod
+    def oos_walk_forward_vs_oos_rejected_graph(cls, fig, ax, wfa_results, metric_fn, metric_name):
+        oos_rej_metrics, oos_metrics, percentiles = cls.oos_walk_forward_vs_oos_rejected(wfa_results, metric_fn)
+        ax.boxplot(oos_rej_metrics,
+                   positions=np.arange(len(wfa_results)),
+                   labels=[oos_wf.test.start.date() for (_, oos_wf, _) in wfa_results])
+        lines = ax.plot(oos_metrics)
+        xy = lines[0].get_xydata()
+        for (i, pct) in enumerate(percentiles):
+            ax.annotate(f"{round(pct,1)}%", xy=xy[i])
+        plt.setp(ax.get_xticklabels(), fontsize=10, rotation='vertical')
+        ax.set_title(f"OOS WF vs OOS Rejected {metric_name}")
+
+    @classmethod
     def top_btm_days(cls, results, n=10):
         top = []
         btm = []

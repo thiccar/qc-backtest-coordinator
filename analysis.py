@@ -181,32 +181,32 @@ class Analysis:
         return wfa_results
 
     @classmethod
-    def wfa_summary_statistics(cls, wfa_results, oos_combined, objective_fn):
+    def wfa_summary_statistics(cls, wfa_results, objective_fn):
         """Return a formatted table with WFA summary statistics a la Pardo (see https://pasteboard.co/JMmVgHk.png)"""
         headers = ["", "INS\nStart", "INS\nEnd", "Best INS P/L\nAnnualized", "Best INS\nMax Drawdown", "OOS\nStart",
                    "OOS\nEnd", "Net P/L", "Net P/L\nAnnualized", "Max\nDrawdown", "ROMAD\nAnnualized", "Win %",
                    "Walk-Forward\nEfficiency", "Sortino\nRatio", "Sharpe\nRatio", "PSR", "OOS Params"]
         table = []
-        for (ins_results, oos_result) in wfa_results:
-            best_ins = max(ins_results, key=objective_fn)
+        for (ins, oos_wf, _) in wfa_results:
+            best_ins = max(ins, key=objective_fn)
             row = [
                 None,
                 best_ins.test.start.date(),
                 best_ins.test.end.date(),
                 best_ins.annualized_net_profit(),
                 round(best_ins.drawdown(), 3),
-                oos_result.test.start.date(),
-                oos_result.test.end.date(),
-                oos_result.net_profit(),
-                oos_result.annualized_net_profit(),
-                oos_result.drawdown(),
-                oos_result.annualized_return_over_max_drawdown(),
-                oos_result.win_rate(),
-                oos_result.annualized_net_profit() / best_ins.annualized_net_profit(),
-                oos_result.sortino_ratio(),
-                oos_result.sharpe_ratio(),
-                oos_result.probabilistic_sharpe_ratio(),
-                json.dumps(oos_result.test.params),
+                oos_wf.test.start.date(),
+                oos_wf.test.end.date(),
+                oos_wf.net_profit(),
+                oos_wf.annualized_net_profit(),
+                oos_wf.drawdown(),
+                oos_wf.annualized_return_over_max_drawdown(),
+                oos_wf.win_rate(),
+                oos_wf.annualized_net_profit() / best_ins.annualized_net_profit(),
+                oos_wf.sortino_ratio(),
+                oos_wf.sharpe_ratio(),
+                oos_wf.probabilistic_sharpe_ratio(),
+                json.dumps(oos_wf.test.params),
             ]
             table.append(row)
 
@@ -229,23 +229,6 @@ class Analysis:
         ]
         table.append(summary)
 
-        if oos_combined:
-            combined = [
-                "Combined", "", "",
-                mean_ins_annualized_pl,
-                max_ins_drawdown,
-                wfa_results[0][1].test.start.date(), wfa_results[-1][1].test.end.date(),
-                oos_combined.net_profit(),
-                oos_combined.annualized_net_profit(),
-                oos_combined.drawdown(),
-                oos_combined.annualized_return_over_max_drawdown(),
-                oos_combined.win_rate(),
-                oos_combined.annualized_net_profit() / mean_ins_annualized_pl,
-                oos_combined.sortino_ratio(),
-                oos_combined.sharpe_ratio(),
-                oos_combined.probabilistic_sharpe_ratio(),
-            ]
-            table.append(combined)
         return tabulate(table, headers=headers, numalign="right", floatfmt=",.2f")
 
     @classmethod

@@ -268,6 +268,9 @@ class TestResult:
 
         return df["y"]
 
+    def daily_returns(self):
+        return self.equity_timeseries().resample("1D").last().dropna().pct_change().dropna()
+
     @classmethod
     def parse_dollars(cls, s: str) -> Decimal:
         assert s.startswith("$")

@@ -296,15 +296,15 @@ class Analysis:
     @classmethod
     def oos_walk_forward_efficiency(cls, wfa_results, objective_fn):
         wfe = []
-        for (ins_results, oos_result) in wfa_results:
-            best_opt = max(ins_results, key=objective_fn)
-            wfe.append(oos_result.annualized_net_profit() / best_opt.annualized_net_profit())
+        for (ins, oos_wf, _) in wfa_results:
+            best_opt = max(ins, key=objective_fn)
+            wfe.append(oos_wf.annualized_net_profit() / best_opt.annualized_net_profit())
         return wfe
 
     @classmethod
     def oos_walk_forward_efficiency_bar_graph(cls, fig, ax, wfa_results, objective_fn):
         wfe = cls.oos_walk_forward_efficiency(wfa_results, objective_fn)
-        labels = [oos_result.test.start.date() for (_, oos_result) in wfa_results]
+        labels = [oos_wf.test.start.date() for (_, oos_wf, _) in wfa_results]
         x = np.arange(len(labels))
         width = 0.35
 
@@ -315,23 +315,24 @@ class Analysis:
         plt.setp(fig.axes[0].get_xticklabels(), fontsize=10, rotation='vertical')
 
     @classmethod
-    def oos_vs_is(cls, wfa_results, metric_fn):
-        ins_metrics = [[metric_fn(r) for r in ins_results] for (ins_results, _) in wfa_results]
-        oos_metrics = [metric_fn(oos_result) for (_, oos_result) in wfa_results]
-        percentiles = [percentileofscore(ins, oos) for (ins, oos) in zip(ins_metrics, oos_metrics)]
-        return ins_metrics, oos_metrics, percentiles
+    def oos_walk_forward_vs_in_sample(cls, wfa_results, metric_fn):
+        ins_metrics = [[metric_fn(r) for r in ins] for (ins, _, _) in wfa_results]
+        oos_wf_metrics = [metric_fn(oos_wf) for (_, oos_wf, _) in wfa_results]
+        percentiles = [percentileofscore(ins, oos) for (ins, oos) in zip(ins_metrics, oos_wf_metrics)]
+        return ins_metrics, oos_wf_metrics, percentiles
 
     @classmethod
-    def oos_vs_is_graph(cls, fig, ax, wfa_results, metric_fn, metric_name):
-        ins_metrics, oos_metrics, percentiles = cls.oos_vs_is(wfa_results, metric_fn)
-        ax.boxplot(ins_metrics, positions=np.arange(len(wfa_results)),
-                   labels=[oos_result.test.start.date() for (_, oos_result) in wfa_results])
+    def oos_walk_forward_vs_in_sample_graph(cls, fig, ax, wfa_results, metric_fn, metric_name):
+        ins_metrics, oos_metrics, percentiles = cls.oos_walk_forward_vs_in_sample(wfa_results, metric_fn)
+        ax.boxplot(ins_metrics,
+                   positions=np.arange(len(wfa_results)),
+                   labels=[oos_wf.test.start.date() for (_, oos_wf, _) in wfa_results])
         lines = ax.plot(oos_metrics)
         xy = lines[0].get_xydata()
         for (i, pct) in enumerate(percentiles):
             ax.annotate(f"{round(pct,1)}%", xy=xy[i])
         plt.setp(ax.get_xticklabels(), fontsize=10, rotation='vertical')
-        ax.set_title(f"OOS vs IS {metric_name}")
+        ax.set_title(f"OOS vs INS {metric_name}")
 
     @classmethod
     def top_btm_days(cls, results, n=10):
@@ -398,41 +399,40 @@ class Analysis:
         ax.legend()
 
     @classmethod
-    def wfa_params_plot(cls, fig, wfa_results):
+    def params_plot(cls, fig, results):
         """Graph change in parameters used"""
-        params_keys = list(k for k in wfa_results[0][1].test.params.keys() if k not in ["start", "end"])
-        xs = [oos_result.test.start for (_, oos_result) in wfa_results]
+        params_keys = list(k for k in results[0].test.params.keys() if k not in ["start", "end"])
+        xs = [r.test.start for r in results]
         axs = fig.subplots(len(params_keys), 1)
         for (ax, key) in zip(axs, params_keys):
-            ys = [oos_result.test.params[key] for (_, oos_result) in wfa_results]
+            ys = [r.test.params[key] for r in results]
             ax.plot(xs, ys, label=key)
             ax.set_title(key)
 
     @classmethod
-    def wfa_evaluation_profile(cls, wfa_results, oos_combined):
+    def wfa_evaluation_profile(cls, oos_wf_results):
         """Produce a table like https://pasteboard.co/JO2OL6Y.png (Table 14.1 from "The Evaluation and Optimization of
         Trading Strategies"), as well as similar stats for rolling windows.
         """
         return "\n".join([
-            cls.wfa_evaluation_profile_header(wfa_results, oos_combined),
-            cls.wfa_evaluation_profile_trade_analysis(wfa_results, oos_combined),
-            cls.wfa_evaluation_profile_equity_swings(wfa_results, oos_combined),
-            cls.wfa_evaluation_rolling_window(wfa_results, oos_combined, pd.Timedelta(7, "D")),
-            cls.wfa_evaluation_rolling_window(wfa_results, oos_combined, pd.Timedelta(30, "D")),
-            cls.wfa_evaluation_rolling_window(wfa_results, oos_combined, pd.Timedelta(90, "D")),
-            cls.wfa_evaluation_rolling_window(wfa_results, oos_combined, pd.Timedelta(180, "D")),
-            cls.wfa_evaluation_rolling_window(wfa_results, oos_combined, pd.Timedelta(360, "D"))
+            cls.wfa_evaluation_profile_header(oos_wf_results),
+            cls.wfa_evaluation_profile_trade_analysis(oos_wf_results),
+            cls.wfa_evaluation_profile_equity_swings(oos_wf_results),
+            cls.wfa_evaluation_rolling_window(oos_wf_results, pd.Timedelta(7, "D")),
+            cls.wfa_evaluation_rolling_window(oos_wf_results, pd.Timedelta(30, "D")),
+            cls.wfa_evaluation_rolling_window(oos_wf_results, pd.Timedelta(90, "D")),
+            cls.wfa_evaluation_rolling_window(oos_wf_results, pd.Timedelta(180, "D")),
+            cls.wfa_evaluation_rolling_window(oos_wf_results, pd.Timedelta(360, "D"))
         ])
 
     @classmethod
-    def wfa_evaluation_profile_header(cls, wfa_results, oos_combined):
-        oos_results = [oos_result for (_, oos_result) in wfa_results]
-        oos_start = oos_results[0].test.start.date()
-        oos_end = oos_results[-1].test.end.date()
+    def wfa_evaluation_profile_header(cls, oos_wf_results):
+        oos_start = oos_wf_results[0].test.start.date()
+        oos_end = oos_wf_results[-1].test.end.date()
         years = Decimal((oos_end - oos_start).days / 360)
-        net_pl = sum(oos_result.net_profit() for oos_result in oos_results)
+        net_pl = sum(oos_wf.net_profit() for oos_wf in oos_wf_results)
         annualized_pl = net_pl / years
-        total_trades = sum(oos_result.total_trades() for oos_result in oos_results)
+        total_trades = sum(oos_wf.total_trades() for oos_wf in oos_wf_results)
         annual_trades = total_trades / years
         avg_trade = net_pl / total_trades
         header = [
@@ -446,15 +446,14 @@ class Analysis:
                tabulate(header, numalign="right", floatfmt=",.2f")
 
     @classmethod
-    def wfa_evaluation_profile_trade_analysis(cls, wfa_results, oos_combined):
-        oos_results = [oos_result for (_, oos_result) in wfa_results]
-        max_win = max((oos_result.max_win_trade() for oos_result in oos_results), key=lambda t: t["ProfitLoss"])
-        max_loss = min((oos_result.max_loss_trade() for oos_result in oos_results), key=lambda t: t["ProfitLoss"])
-        min_win = min((oos_result.min_win_trade() for oos_result in oos_results), key=lambda t: t["ProfitLoss"])
-        min_loss = max((oos_result.min_loss_trade() for oos_result in oos_results), key=lambda t: t["ProfitLoss"])
+    def wfa_evaluation_profile_trade_analysis(cls, oos_wf_results):
+        max_win = max((oos_wf.max_win_trade() for oos_wf in oos_wf_results), key=lambda t: t["ProfitLoss"])
+        max_loss = min((oos_wf.max_loss_trade() for oos_wf in oos_wf_results), key=lambda t: t["ProfitLoss"])
+        min_win = min((oos_wf.min_win_trade() for oos_wf in oos_wf_results), key=lambda t: t["ProfitLoss"])
+        min_loss = max((oos_wf.min_loss_trade() for oos_wf in oos_wf_results), key=lambda t: t["ProfitLoss"])
 
-        all_wins = list(itertools.chain.from_iterable(oos_result.winning_trades() for oos_result in oos_results))
-        all_losses = list(itertools.chain.from_iterable(oos_result.losing_trades() for oos_result in oos_results))
+        all_wins = list(itertools.chain.from_iterable(oos_wf.winning_trades() for oos_wf in oos_wf_results))
+        all_losses = list(itertools.chain.from_iterable(oos_wf.losing_trades() for oos_wf in oos_wf_results))
         avg_win = np.mean([t["ProfitLoss"] for t in all_wins])
         avg_win_dur = pd.Timedelta(np.mean([TestResult.trade_duration(t).total_seconds() for t in all_wins]), "s")
         stdev_win = np.std([t["ProfitLoss"] for t in all_wins])
@@ -476,11 +475,11 @@ class Analysis:
         return tabulate(trade_analysis, headers=trade_analysis_header, numalign="right", floatfmt=",.2f")
 
     @classmethod
-    def wfa_evaluation_profile_equity_swings(cls, wfa_results, oos_combined):
+    def wfa_evaluation_profile_equity_swings(cls, oos_wf_results):
         # https://stackoverflow.com/questions/31543697/how-to-split-pandas-dataframe-based-on-difference-of-values-in-a-column
         # Best to debug this logic in a Jupyter notebook
-        df = oos_combined.equity_timeseries().resample("1D").first().dropna().to_frame()
-        df["pct"] = df.pct_change()
+        df = pd.concat(oos_wf.daily_returns() for oos_wf in oos_wf_results).to_frame()
+        df.columns = ["pct"]
         df["sign"] = np.sign(df["pct"])
 
         directional = df[df["sign"] != 0]
@@ -519,16 +518,16 @@ class Analysis:
         return tabulate(equity_analysis, headers=equity_analysis_header, numalign="right", floatfmt=",.2f")
 
     @classmethod
-    def wfa_evaluation_rolling_window(cls, wfa_results, oos_combined, windowsize):
-        equity = oos_combined.equity_timeseries()
+    def wfa_evaluation_rolling_window(cls, oos_wf_results, windowsize):
+        daily_returns = pd.concat(oos_wf.daily_returns() for oos_wf in oos_wf_results)
 
         def window_return(rows):
-            if rows.index[-1] - equity.index[0] >= windowsize:
-                return rows[-1] / rows[0]
+            if rows.index[-1] - daily_returns.index[0] >= windowsize:
+                return (rows + 1).prod()
             else:
                 return np.nan
 
-        rolling_windows = equity.rolling(windowsize, closed="neither").apply(window_return).dropna()
+        rolling_windows = daily_returns.rolling(windowsize, closed="neither").apply(window_return).dropna()
         up_windows = rolling_windows[rolling_windows > 1]
         down_windows = rolling_windows[rolling_windows < 1]
         header = [f"Rolling Window: {windowsize}", "Equity Run-Up", "Equity Drawdown"]

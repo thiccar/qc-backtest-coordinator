@@ -558,10 +558,10 @@ class WalkForwardMultiple(TestSet):
         # The combined OOS test takes a long time to run so we leave debug logging on for it
         loglevel = {"logLevel": "DEBUG"}
 
-        combined_name = Test.generate_name(f"wf_{self.ins_months}_{self.oos_months}_oos_{start}_{end}", params_list)
+        combined_name = Test.generate_name(f"wf_{self.ins_months}_{self.oos_months}_ooscombined_{start}_{end}", params_list)
         combined = Test(combined_name, params_list, extraneous_params={**self.extraneous_params, **loglevel})
 
-        combined_mt_name = Test.generate_name(f"wf_{self.ins_months}_{self.oos_months}_oosmt_{start}_{end}", params_list)
+        combined_mt_name = Test.generate_name(f"wf_{self.ins_months}_{self.oos_months}_ooscombinedmt_{start}_{end}", params_list)
         mt_extraneous = {"margin": {"rate": 0.01}, "tax": {"rate": 0.4}}
         combined_mt = Test(combined_mt_name, params_list,
                            extraneous_params={**self.extraneous_params, **loglevel, **mt_extraneous})

@@ -133,11 +133,8 @@ class Coordinator:
                 for test in created_tests:
                     if len(launched_tasks) >= limit:
                         break
-                    self.update_test_state(test)
-                    if test.state != TestState.CREATED:
-                        self.logger.info(f"{test.name} was previously launched")
-                    else:
-                        launched_tasks.append(asyncio.create_task(self.launch_test(test)))
+
+                    launched_tasks.append(asyncio.create_task(self.launch_test(test)))
 
                 while len(launched_tasks) < limit and not self.generator_done:
                     test = self.get_next_test(test_generator)

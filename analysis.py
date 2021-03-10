@@ -149,23 +149,33 @@ class Analysis:
 
     @classmethod
     def wfa_grouped_results(cls, results, ins_marker="_ins_", oos_wf_marker="_ooswf_", oos_rej_marker="_oosrej_"):
-        oos_sorted = list(sorted([r for r in results if oos_wf_marker in r.test.name], key=lambda r: r.test.start))
+        oos_wf_sorted = list(sorted([r for r in results if oos_wf_marker in r.test.name], key=lambda r: r.test.start))
 
-        combined_start = oos_sorted[0].test.start
-        combined_end = oos_sorted[-1].test.end
+        combined_start = oos_wf_sorted[0].test.start
+        combined_end = oos_wf_sorted[-1].test.end
         oos_combined = filter(
             lambda r: (r.test.start, r.test.end) == (combined_start, combined_end),
-            oos_sorted)
+            oos_wf_sorted)
         oos_combined = next(oos_combined, None)
         if oos_combined:
-            oos_sorted.remove(oos_combined)
+            oos_wf_sorted.remove(oos_combined)
 
         ins_grouped = itertools.groupby([r for r in results if ins_marker in r.test.name], key=lambda r: r.test.start)
         ins_sorted = sorted([(d, list(g)) for (d, g) in ins_grouped], key=lambda tup: tup[0])
-        wfa_results = [(ins_results, oos_result) for ((_, ins_results), oos_result) in zip(ins_sorted, oos_sorted)]
 
-        for (ins_results, oos_result) in wfa_results:
-            assert oos_result.test.start == ins_results[0].test.end + timedelta(1)
+        oos_rej_grouped = itertools.groupby([r for r in results if oos_rej_marker in r.test.name], key=lambda r: r.test.start)
+        oos_rej_sorted = sorted([(d, list(g)) for (d, g) in oos_rej_grouped], key=lambda tup: tup[0])
+
+        assert len(oos_rej_sorted) == 0 or len(oos_rej_sorted) == len(oos_wf_sorted)
+        if len(oos_rej_sorted) == 0:
+            oos_rej_sorted = [[]] * len(oos_wf_sorted)
+
+        wfa_results = [(ins, oos_wf, oos_rej) for ((_, ins), oos_wf, (_, oos_rej)) in zip(ins_sorted, oos_wf_sorted, oos_rej_sorted)]
+
+        for (ins, oos_wf, oos_rej) in wfa_results:
+            assert oos_wf.test.start == ins[0].test.end + timedelta(1)
+            assert all(r.test.start == oos_wf.test.start and r.test.end == oos_wf.test.end for r in oos_rej)
+            assert len(oos_rej) == len(ins) - 1
 
         # TODO: Consider creating a class to group together this information
         return wfa_results

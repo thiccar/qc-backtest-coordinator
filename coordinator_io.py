@@ -75,8 +75,7 @@ class CoordinatorIO:
         return log_path.exists()
 
     def test_log_path(self, test):
-        name = test.name if isinstance(test, Test) else test["name"]  # Support Test or dict
-        return self.test_set_path / f"{name}.log"
+        return self.test_set_path / f"{test.name}.log"
 
     def read_state(self):
         """Read state from JSON file, if it exists"""

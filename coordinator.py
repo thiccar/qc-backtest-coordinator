@@ -183,12 +183,12 @@ class Coordinator:
         
         create_backtest_resp = self.api.create_backtest(self.project_id, test.compile_id, test.name)
         if not create_backtest_resp["success"]:
-            self.logger.error(f"{test.name} create_backtest failed")
+            self.logger.error(f"{test.name} create_backtest failed compile_id={test.compile_id}")
             self.logger.error(create_backtest_resp)
         else:
             test.backtest_id = create_backtest_resp["backtest"]["backtestId"]
             test.state = TestState.RUNNING
-            self.logger.info(f"{test.name} launched")
+            self.logger.info(f"{test.name} launched compile_id={test.compile_id} backtest_id={test.backtest_id}")
 
     def on_test_completed(self, test: Test):
         if not test.result_saved:

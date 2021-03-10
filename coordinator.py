@@ -169,7 +169,7 @@ class Coordinator:
 
     def launch_test(self, test):
         """update parameters file, compile, and launch backtest"""
-        if not test.compile_id:
+        if not test.compile_id or test.launch_backtest_attempts > 5:
             if not self.api.update_parameters_file(self.project_id, self.initial_parameters_file, test.params,
                                                    test.extraneous_params):
                 self.logger.error(f"{test.name} update_parameters_file failed")
@@ -180,15 +180,18 @@ class Coordinator:
                 self.logger.error(f"{test.name} compile failed")
                 return
             test.compile_id = compile_id
-        
+            test.launch_backtest_attempts = 0
+
+        sleep(3)  # TODO: Do these in parallel.
         create_backtest_resp = self.api.create_backtest(self.project_id, test.compile_id, test.name)
-        if not create_backtest_resp["success"]:
-            self.logger.error(f"{test.name} create_backtest failed compile_id={test.compile_id}")
-            self.logger.error(create_backtest_resp)
-        else:
+        if create_backtest_resp["success"]:
             test.backtest_id = create_backtest_resp["backtest"]["backtestId"]
             test.state = TestState.RUNNING
             self.logger.info(f"{test.name} launched compile_id={test.compile_id} backtest_id={test.backtest_id}")
+        else:
+            test.launch_backtest_attempts += 1
+            self.logger.error(f"{test.name} create_backtest failed compile_id={test.compile_id}")
+            self.logger.error(create_backtest_resp)
 
     def on_test_completed(self, test: Test):
         if not test.result_saved:

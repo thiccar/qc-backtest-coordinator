@@ -115,7 +115,8 @@ class Coordinator:
                                  f"len(tests)={len(self.tests)} "
                                  f"len(backtests)={len(self.backtests)} state_counter={self.state_counter}")
                 if (self.generator_done and self.state_counter[TestState.CREATED] == 0
-                        and self.state_counter[TestState.RUNNING] == 0):
+                        and self.state_counter[TestState.RUNNING] == 0
+                        and all(test.result_saved and test.log_saved for test in self.tests)):
                     break
 
                 on_completed_tasks = []

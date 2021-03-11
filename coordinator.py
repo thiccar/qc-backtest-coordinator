@@ -254,7 +254,7 @@ class Coordinator:
                 # Assume by this point that it will never work, rename it and set state to created so it will be
                 # launched in next loop iteration
                 self.logger.error(f"giving up on read_backtest for {test.name}, will relaunch it")
-                update_backtest_resp = asyncio.get_running_loop().run_in_executor(
+                update_backtest_resp = await asyncio.get_running_loop().run_in_executor(
                     self.io_tpe, self.api.update_backtest, self.project_id, test.backtest_id, f"(FAILED) {test.name}")
                 if update_backtest_resp["success"]:
                     test.backtest_id = None

@@ -1,4 +1,5 @@
 """Code that can be shared among Jupyter notebooks"""
+from collections import Counter
 import csv
 from datetime import datetime, timedelta
 from decimal import Decimal
@@ -27,6 +28,15 @@ class Analysis:
     def tests(self):
         state = self.cio.read_state()
         return [Test.from_dict(t) for t in state["coordinator"]["tests"]]
+
+    @classmethod
+    def tests_with_duplicate_params(cls, tests):
+        counts = Counter(tuple(t.params.items()) for t in tests)
+        dupes = []
+        for (p, c) in counts.items():
+            if c > 1:
+                dupes.extend(t for t in tests if tuple(t.params.items()) == p)
+        return dupes
 
     def results(self, exclude_trades=False, exclude_rolling_window=False, exclude_charts=False):
         for t in self.tests():

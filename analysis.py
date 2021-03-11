@@ -44,6 +44,7 @@ class Analysis:
             if t.state == TestState.RUNNING:
                 continue
             result = self.cio.read_test_result(t)
+            assert result is not None, f"{t.name} result missing"
             if exclude_trades:
                 del result.bt_result["totalPerformance"]["ClosedTrades"]
             if exclude_rolling_window:
@@ -176,18 +177,23 @@ class Analysis:
         oos_rej_grouped = itertools.groupby([r for r in results if oos_rej_marker in r.test.name], key=lambda r: r.test.start)
         oos_rej_sorted = sorted([(d, list(g)) for (d, g) in oos_rej_grouped], key=lambda tup: tup[0])
 
-        assert len(oos_rej_sorted) == 0 or len(oos_rej_sorted) == len(oos_wf_sorted)
+        if len(oos_rej_sorted) > 0 and len(oos_rej_sorted) != len(oos_wf_sorted):
+            oos_wf_dates = [r.test.start.date().isoformat() for r in oos_wf_sorted]
+            oos_rej_dates = [t[0].date().isoformat() for t in oos_rej_sorted]
+            msg = f"len(oos_rej_sorted) != len(oos_wf_sorted. oos_wf_dates={oos_wf_dates} oos_rej_dates={oos_rej_dates}"
+            raise AssertionError(msg)
         if len(oos_rej_sorted) == 0:
             oos_rej_sorted = [[]] * len(oos_wf_sorted)
 
         wfa_results = [(ins, oos_wf, oos_rej) for ((_, ins), oos_wf, (_, oos_rej)) in zip(ins_sorted, oos_wf_sorted, oos_rej_sorted)]
 
         for (ins, oos_wf, oos_rej) in wfa_results:
-            assert oos_wf.test.start == ins[0].test.end + timedelta(1)
-            assert all(r.test.start == oos_wf.test.start and r.test.end == oos_wf.test.end for r in oos_rej)
-            assert len(oos_rej) == len(ins) - 1
+            assert oos_wf.test.start == ins[0].test.end + timedelta(1), "OOS walk-forward date not adjacent to in-sample"
+            assert all(r.test.start == oos_wf.test.start and r.test.end == oos_wf.test.end for r in oos_rej),\
+                   "oos_rej dates don't match oos_wf"
+            assert len(oos_rej) == len(ins) - 1,\
+                f"expected {len(ins)-1} oos_rej, got {len(oos_rej)} start={oos_wf.test.start.date().isoformat()}"
 
-        # TODO: Consider creating a class to group together this information
         return wfa_results
 
     @classmethod

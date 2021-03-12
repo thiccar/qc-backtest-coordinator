@@ -197,7 +197,7 @@ class Analysis:
         return wfa_results
 
     @classmethod
-    def wfa_summary_statistics(cls, wfa_results, objective_fn):
+    def wfa_summary_statistics(cls, wfa_results, objective_fn, show_params=True):
         """Return a formatted table with WFA summary statistics a la Pardo (see https://pasteboard.co/JMmVgHk.png)"""
         headers = ["", "INS\nStart", "INS\nEnd", "Best INS P/L\nAnnualized", "Best INS\nMax Drawdown", "OOS\nStart",
                    "OOS\nEnd", "Net P/L", "Net P/L\nAnnualized", "Max\nDrawdown", "ROMAD\nAnnualized", "Win %",
@@ -222,7 +222,7 @@ class Analysis:
                 oos_wf.sortino_ratio(),
                 oos_wf.sharpe_ratio(),
                 oos_wf.probabilistic_sharpe_ratio(),
-                json.dumps(oos_wf.test.params),
+                json.dumps(oos_wf.test.params) if show_params else "",
             ]
             table.append(row)
 

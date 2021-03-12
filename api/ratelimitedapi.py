@@ -37,9 +37,9 @@ class RateLimitedApi(Api):
     def __init__(self, user_id, token, debug=False):
         super().__init__(user_id, token, debug)
 
-    @on_exception(expo, exception=(requests.exceptions.RequestException, RateLimitException), max_tries=5,
+    @on_exception(expo, exception=(requests.exceptions.RequestException, RateLimitException), max_tries=10,
                   base=5, factor=2, max_value=10)  # kwargs that get passed to expo
-    @limits(calls=20, period=10)  # 20 calls every 10 seconds
+    @limits(calls=20, period=5)  # 20 calls every 5 seconds
     def Execute(self, endpoint, data=None, is_post=False, headers={}):
         # TODO: Move failure logging in here?
         return super().Execute(endpoint, data, is_post, headers)

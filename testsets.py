@@ -12,6 +12,7 @@ import math
 import random
 
 from babel.numbers import parse_decimal
+import ciso8601
 import coolname
 import coolname.data
 import numpy as np
@@ -123,6 +124,9 @@ class TestResult:
         self.trade_statistics = bt_result["totalPerformance"]["TradeStatistics"]
         self.alpha_runtime_statistics = bt_result["alphaRuntimeStatistics"]
 
+        self._closed_trades_df = None
+        self._equity_time_series = None
+
     @classmethod
     def validate_backtest_results(cls, bt_result):
         return (
@@ -150,19 +154,19 @@ class TestResult:
     def final_equity(self):
         return self.parse_dollars(self.runtime_statistics["Equity"])
 
-    def closed_trades(self):
-        return self.bt_result["totalPerformance"]["ClosedTrades"]
-
     def closed_trades_df(self):
-        ct = copy.deepcopy(self.closed_trades())
-        for t in ct:
-            t["Symbol"] = t["Symbol"]["ID"]
-            t["EntryTime"] = du.parser.parse(t["EntryTime"])
-            t["ExitTime"] = du.parser.parse(t["ExitTime"])
-            t["Duration"] = self.trade_duration(t)
+        if self._closed_trades_df is None:
+            ct = self.bt_result["totalPerformance"]["ClosedTrades"]
+            for t in ct:
+                t["Symbol"] = t["Symbol"]["ID"]
+                t["EntryTime"] = entry_time = ciso8601.parse_datetime(t["EntryTime"])
+                t["ExitTime"] = exit_time = ciso8601.parse_datetime(t["ExitTime"])
+                t["Duration"] = entry_time - exit_time
 
-        df = pd.DataFrame(ct)
-        return df
+            self._closed_trades_df = pd.DataFrame(ct)
+            del self.bt_result["totalPerformance"]["ClosedTrades"]  # Free up memory
+
+        return self._closed_trades_df
 
     def total_trades(self):
         return int(self.statistics["Total Trades"])
@@ -173,17 +177,19 @@ class TestResult:
     def total_losing_trades(self):
         return int(self.trade_statistics["NumberOfLosingTrades"])
 
-    def winning_trades(self):
-        return [t for t in self.closed_trades() if t["ProfitLoss"] > 0]
+    def winning_trades_df(self):
+        df = self.closed_trades_df()
+        return df[df["ProfitLoss"] > 0]
 
-    def losing_trades(self):
-        return [t for t in self.closed_trades() if t["ProfitLoss"] < 0]
+    def losing_trades_df(self):
+        df = self.closed_trades_df()
+        return df[df["ProfitLoss"] < 0]
 
     def avg_win(self):
         return Decimal(self.trade_statistics["AverageProfit"])
 
     def stdev_win(self):
-        return Decimal(np.std([trade["ProfitLoss"] for trade in self.closed_trades() if trade["ProfitLoss"] > 0]))
+        return Decimal(self.winning_trades_df()["ProfitLoss"].std())
 
     def avg_loss(self):
         return Decimal(self.trade_statistics["AverageLoss"])
@@ -198,16 +204,20 @@ class TestResult:
         return Decimal(self.trade_statistics["LargestLoss"])
 
     def max_win_trade(self):
-        return max(self.closed_trades(), key=lambda t: t["ProfitLoss"])
+        df = self.winning_trades_df()
+        return df.loc[df["ProfitLoss"].idxmax()]
 
     def min_win_trade(self):
-        return min((t for t in self.closed_trades() if t["ProfitLoss"] > 0), key=lambda t: t["ProfitLoss"])
+        df = self.winning_trades_df()
+        return df.loc[df["ProfitLoss"].idxmin()]
 
     def max_loss_trade(self):
-        return min(self.closed_trades(), key=lambda t: t["ProfitLoss"])
+        df = self.losing_trades_df()
+        return df.loc[df["ProfitLoss"].idxmin()]
 
     def min_loss_trade(self):
-        return max((t for t in self.closed_trades() if t["ProfitLoss"] < 0), key=lambda t: t["ProfitLoss"])
+        df = self.losing_trades_df()
+        return df.loc[df["ProfitLoss"].idxmax()]
 
     def net_profit(self):
         return self.parse_dollars(self.runtime_statistics["Net Profit"])
@@ -259,17 +269,20 @@ class TestResult:
 
         return adj_annualized_return
 
-    def equity_timeseries(self):
-        ts = self.bt_result["charts"]["Strategy Equity"]["Series"]["Equity"]["Values"]
-        df = pd.DataFrame(ts)
-        df["x"] = pd.to_datetime(df["x"], unit="s", utc=True)  # See BaseResultsHandler.Sample() in LEAN for UTC
-        df["x"] = df["x"].dt.tz_convert("America/New_York")
-        df.set_index("x", inplace=True)
+    def equity_time_series(self):
+        if self._equity_time_series is None:
+            ts = self.bt_result["charts"]["Strategy Equity"]["Series"]["Equity"]["Values"]
+            df = pd.DataFrame(ts)
+            df["x"] = pd.to_datetime(df["x"], unit="s", utc=True)  # See BaseResultsHandler.Sample() in LEAN for UTC
+            df["x"] = df["x"].dt.tz_convert("America/New_York")
+            df.set_index("x", inplace=True)
 
-        return df["y"]
+            self._equity_time_series = df["y"]
+
+        return self._equity_time_series
 
     def daily_returns(self):
-        return self.equity_timeseries().resample("1D").last().dropna().pct_change().dropna()
+        return self.equity_time_series().resample("1D").last().dropna().pct_change().dropna()
 
     @classmethod
     def parse_dollars(cls, s: str) -> Decimal:
@@ -280,18 +293,6 @@ class TestResult:
     def parse_percent(cls, s: str) -> Decimal:
         assert s.endswith("%")
         return parse_decimal(s.strip("%"), locale='en_US') / 100
-
-    @classmethod
-    def trade_duration(cls, trade):
-        duration = trade["Duration"]
-        if "." in duration:
-            days, hms = duration.split(".")
-        else:
-            days = 0
-            hms = duration
-
-        h, m, s = hms.split(":")
-        return pd.Timedelta(days=int(days), hours=int(h), minutes=int(m), seconds=int(s))
 
 
 class TestSet(ABC):

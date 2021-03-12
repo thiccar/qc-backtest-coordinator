@@ -105,9 +105,8 @@ class Analysis:
 
         rows = []
         for (i, r) in enumerate(results):
-            e = r.bt_result["charts"]["Strategy Equity"]["Series"]["Equity"]["Values"]
-            last_date = datetime.fromtimestamp(e[-1]["x"])
-            if r.test.end - last_date > timedelta(days=7):
+            last_date = r.equity_time_series().index[-1]
+            if pd.Timestamp(r.test.end, tz="America/New_York") - last_date > timedelta(days=7):
                 rows.append([i, r.test.name, last_date, r.bt_result["nodeName"], json.dumps(r.test.params)])
 
         headers = ["index", "name", "last_date", "node", "params"]
@@ -251,7 +250,7 @@ class Analysis:
     def stitch_oos_equity_curve(cls, wfa_results):
         combined = None
         for (_, oos_result) in wfa_results:
-            e = oos_result.equity_timeseries()
+            e = oos_result.equity_time_series()
             if combined is None:
                 combined = e
             else:
@@ -372,48 +371,26 @@ class Analysis:
 
     @classmethod
     def top_btm_days(cls, results, n=10):
-        top = []
-        btm = []
-        for result in results:
-            df = pd.DataFrame(result.bt_result["charts"]["Strategy Equity"]["Series"]["Equity"]["Values"])
-            df["ts"] = pd.to_datetime(df["x"], unit="s").apply(
-                lambda ts: ts.tz_localize("UTC").tz_convert("America/New_York"))
-            r = df.resample("D", on="ts").last()
-            r["prev_y"] = r.shift(1)["y"]
-            r.dropna(inplace=True)
-            r["daily_return"] = r["y"] / r["prev_y"]
-            for tup in r.itertuples():
-                d = tup._asdict()
-                d["test"] = result.test.name
+        top_each = [r.daily_returns().nlargest(n).to_frame().assign(name=r.test.name) for r in results]
+        btm_each = [r.daily_returns().nsmallest(n).to_frame().assign(name=r.test.name) for r in results]
 
-                top.append(d)
-                top.sort(key=lambda x: x["daily_return"], reverse=True)
-                top = top[:n]
-
-                btm.append(d)
-                btm.sort(key=lambda x: x["daily_return"])
-                btm = btm[:n]
-
-        return top, btm
+        return pd.concat(top_each, ignore_index=True, copy=False).nlargest(n, "y"),\
+               pd.concat(btm_each, ignore_index=True, copy=False).nsmallest(n, "y")
 
     @classmethod
     def top_btm_trades(cls, results, n=10):
         """Default TradeBuilder does not track splits leading to extreme values at top/bottom, see
         https://github.com/QuantConnect/Lean/issues/5325
         """
-        top = []
-        btm = []
+        top_each = [r.closed_trades_df().nlargest(n, "ProfitLoss").assign(name=r.test.name) for r in results]
+        btm_each = [r.closed_trades_df().nsmallest(n, "ProfitLoss").assign(name=r.test.name) for r in results]
 
-        for result in results:
-            for trade in result.closed_trades():
-                trade["test"] = result.test.name
-                top.append(trade)
-                top.sort(key=lambda t: t["ProfitLoss"], reverse=True)
-                top = top[:n]
+        top = pd.concat(top_each, ignore_index=True, copy=False).nlargest(n, "ProfitLoss")
+        btm = pd.concat(btm_each, ignore_index=True, copy=False).nsmallest(n, "ProfitLoss")
 
-                btm.append(trade)
-                btm.sort(key=lambda t: t["ProfitLoss"])
-                btm = btm[:n]
+        # Many backtests can have the same trade, so collapse duplicates keeping the most extreme value.
+        top = top.groupby(["Symbol", "EntryTime", "ExitTime"], as_index=False, sort=False).first()
+        btm = btm.groupby(["Symbol", "EntryTime", "ExitTime"], as_index=False, sort=False).first()
 
         return top, btm
 
@@ -431,7 +408,7 @@ class Analysis:
         if oos_combined:
             print(f"Combined: Duration = {oos_combined.duration()} Total Return = {oos_combined.total_return()} "
                   f"Annualized Return = {oos_combined.compounding_annual_return()}")
-            ax.plot(oos_combined.equity_timeseries(), label=f"{label}_continuous" if label else "continuous")
+            ax.plot(oos_combined.equity_time_series(), label=f"{label}_continuous" if label else "continuous")
         ax.legend()
 
     @classmethod
@@ -488,21 +465,23 @@ class Analysis:
         min_win = min((oos_wf.min_win_trade() for oos_wf in oos_wf_results), key=lambda t: t["ProfitLoss"])
         min_loss = max((oos_wf.min_loss_trade() for oos_wf in oos_wf_results), key=lambda t: t["ProfitLoss"])
 
-        all_wins = list(itertools.chain.from_iterable(oos_wf.winning_trades() for oos_wf in oos_wf_results))
-        all_losses = list(itertools.chain.from_iterable(oos_wf.losing_trades() for oos_wf in oos_wf_results))
-        avg_win = np.mean([t["ProfitLoss"] for t in all_wins])
-        avg_win_dur = pd.Timedelta(np.mean([TestResult.trade_duration(t).total_seconds() for t in all_wins]), "s")
-        stdev_win = np.std([t["ProfitLoss"] for t in all_wins])
-        stdev_win_dur = pd.Timedelta(np.std([TestResult.trade_duration(t).total_seconds() for t in all_wins]), "s")
-        avg_loss = np.mean([t["ProfitLoss"] for t in all_losses])
-        avg_loss_dur = pd.Timedelta(np.mean([TestResult.trade_duration(t).total_seconds() for t in all_losses]), "s")
-        stdev_loss = np.std([t["ProfitLoss"] for t in all_losses])
-        stdev_loss_dur = pd.Timedelta(np.std([TestResult.trade_duration(t).total_seconds() for t in all_losses]), "s")
+        all_wins = pd.concat([oos_wf.winning_trades_df() for oos_wf in oos_wf_results], ignore_index=True, copy=False)
+        all_losses = pd.concat([oos_wf.losing_trades_df() for oos_wf in oos_wf_results], ignore_index=True, copy=False)
+
+        avg_win = all_wins["ProfitLoss"].mean()
+        avg_win_dur = all_wins["Duration"].mean()
+        stdev_win = all_wins["ProfitLoss"].std()
+        stdev_win_dur = all_wins["Duration"].std()
+
+        avg_loss = all_losses["ProfitLoss"].mean()
+        avg_loss_dur = all_losses["Duration"].mean()
+        stdev_loss = all_losses["ProfitLoss"].std()
+        stdev_loss_dur = all_losses["Duration"].std()
 
         trade_analysis_header = ["Analysis of Trades", "Price Wins", "Time", "Price Losses", "Time"]
         trade_analysis = [
-            ["Maximum", max_win["ProfitLoss"], pd.Timedelta(TestResult.trade_duration(max_win)), max_loss["ProfitLoss"], pd.Timedelta(TestResult.trade_duration(max_loss))],
-            ["Minimum", min_win["ProfitLoss"], pd.Timedelta(TestResult.trade_duration(min_win)), min_loss["ProfitLoss"], pd.Timedelta(TestResult.trade_duration(min_loss))],
+            ["Maximum", max_win["ProfitLoss"], max_win["Duration"], max_loss["ProfitLoss"], max_loss["Duration"]],
+            ["Minimum", min_win["ProfitLoss"], min_win["Duration"], min_loss["ProfitLoss"], min_loss["Duration"]],
             ["Average", avg_win, avg_win_dur.round("1s"), avg_loss, avg_loss_dur.round("1s")],
             ["StDev", stdev_win, stdev_win_dur.round("1s"), stdev_loss, stdev_loss_dur.round("1s")],
             ["+1 StDev", avg_win + stdev_win, (avg_win_dur + stdev_win_dur).round("1s"), avg_loss + stdev_loss, (avg_loss_dur + stdev_loss_dur).round("1s")],

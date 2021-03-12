@@ -184,25 +184,25 @@ class Analysis:
         if len(oos_rej_sorted) == 0:
             oos_rej_sorted = [[]] * len(oos_wf_sorted)
 
-        wfa_results = [(ins, oos_wf, oos_rej) for ((_, ins), oos_wf, (_, oos_rej)) in zip(ins_sorted, oos_wf_sorted, oos_rej_sorted)]
+        grouped_results = [(ins, oos_wf, oos_rej) for ((_, ins), oos_wf, (_, oos_rej)) in zip(ins_sorted, oos_wf_sorted, oos_rej_sorted)]
 
-        for (ins, oos_wf, oos_rej) in wfa_results:
+        for (ins, oos_wf, oos_rej) in grouped_results:
             assert oos_wf.test.start == ins[0].test.end + timedelta(1), "OOS walk-forward date not adjacent to in-sample"
             assert all(r.test.start == oos_wf.test.start and r.test.end == oos_wf.test.end for r in oos_rej),\
                    "oos_rej dates don't match oos_wf"
             assert len(oos_rej) == len(ins) - 1,\
                 f"expected {len(ins)-1} oos_rej, got {len(oos_rej)} start={oos_wf.test.start.date().isoformat()}"
 
-        return wfa_results
+        return grouped_results
 
     @classmethod
-    def wfa_summary_statistics(cls, wfa_results, objective_fn, show_params=True):
+    def wfa_summary_statistics(cls, wfa_grouped_results, objective_fn, show_params=True):
         """Return a formatted table with WFA summary statistics a la Pardo (see https://pasteboard.co/JMmVgHk.png)"""
         headers = ["", "INS\nStart", "INS\nEnd", "Best INS P/L\nAnnualized", "Best INS\nMax Drawdown", "OOS\nStart",
                    "OOS\nEnd", "Net P/L", "Net P/L\nAnnualized", "Max\nDrawdown", "ROMAD\nAnnualized", "Win %",
                    "Walk-Forward\nEfficiency", "Sortino\nRatio", "Sharpe\nRatio", "PSR", "OOS Params"]
         table = []
-        for (ins, oos_wf, _) in wfa_results:
+        for (ins, oos_wf, _) in wfa_grouped_results:
             best_ins = max(ins, key=objective_fn)
             row = [
                 None,
@@ -231,7 +231,7 @@ class Analysis:
             "Aggregate", "", "",
             mean_ins_annualized_pl,
             max_ins_drawdown,
-            wfa_results[0][1].test.start.date(), wfa_results[-1][1].test.end.date(),
+            wfa_grouped_results[0][1].test.start.date(), wfa_grouped_results[-1][1].test.end.date(),
             sum(r[7] for r in table),
             statistics.mean(r[8] for r in table),
             max(r[9] for r in table),
@@ -247,9 +247,9 @@ class Analysis:
         return tabulate(table, headers=headers, numalign="right", floatfmt=",.2f")
 
     @classmethod
-    def stitch_oos_equity_curve(cls, wfa_results):
+    def stitch_oos_equity_curve(cls, wfa_grouped_results):
         combined = None
-        for (_, oos_result) in wfa_results:
+        for (_, oos_result) in wfa_grouped_results:
             e = oos_result.equity_time_series()
             if combined is None:
                 combined = e
@@ -276,13 +276,13 @@ class Analysis:
         plt.setp(fig.axes[0].get_xticklabels(), fontsize=10, rotation='vertical')
 
     @classmethod
-    def oos_return_drawdown_bar_graph(cls, fig, ax, wfa_results):
+    def oos_return_drawdown_bar_graph(cls, fig, ax, wfa_grouped_results):
         """Graph individual OOS test metrics over time, see evolution. Followed example of
         https://matplotlib.org/3.1.1/gallery/lines_bars_and_markers/barchart.html
         """
-        labels = [oos_result.test.start.date() for (_, oos_result) in wfa_results]
-        tr = [oos_result.total_return() for (_, oos_result) in wfa_results]
-        dd = [oos_result.drawdown() for (_, oos_result) in wfa_results]
+        labels = [oos_result.test.start.date() for (_, oos_result) in wfa_grouped_results]
+        tr = [oos_result.total_return() for (_, oos_result) in wfa_grouped_results]
+        dd = [oos_result.drawdown() for (_, oos_result) in wfa_grouped_results]
         x = np.arange(len(labels))
         width = 0.35
 
@@ -294,10 +294,10 @@ class Analysis:
         plt.setp(fig.axes[0].get_xticklabels(), fontsize=10, rotation='vertical')
 
     @classmethod
-    def oos_sharpe_sortino_bar_graph(cls, fig, ax, wfa_results):
-        labels = [oos_result.test.start.date() for (_, oos_result) in wfa_results]
-        sharpe = [oos_result.sharpe_ratio() for (_, oos_result) in wfa_results]
-        sortino = [oos_result.sortino_ratio() for (_, oos_result) in wfa_results]
+    def oos_sharpe_sortino_bar_graph(cls, fig, ax, wfa_grouped_results):
+        labels = [oos_result.test.start.date() for (_, oos_result) in wfa_grouped_results]
+        sharpe = [oos_result.sharpe_ratio() for (_, oos_result) in wfa_grouped_results]
+        sortino = [oos_result.sortino_ratio() for (_, oos_result) in wfa_grouped_results]
         x = np.arange(len(labels))
         width = 0.35
 
@@ -309,17 +309,17 @@ class Analysis:
         plt.setp(fig.axes[0].get_xticklabels(), fontsize=10, rotation='vertical')
 
     @classmethod
-    def oos_walk_forward_efficiency(cls, wfa_results, objective_fn):
+    def oos_walk_forward_efficiency(cls, wfa_grouped_results, objective_fn):
         wfe = []
-        for (ins, oos_wf, _) in wfa_results:
+        for (ins, oos_wf, _) in wfa_grouped_results:
             best_opt = max(ins, key=objective_fn)
             wfe.append(oos_wf.annualized_net_profit() / best_opt.annualized_net_profit())
         return wfe
 
     @classmethod
-    def oos_walk_forward_efficiency_bar_graph(cls, fig, ax, wfa_results, objective_fn):
-        wfe = cls.oos_walk_forward_efficiency(wfa_results, objective_fn)
-        labels = [oos_wf.test.start.date() for (_, oos_wf, _) in wfa_results]
+    def oos_walk_forward_efficiency_bar_graph(cls, fig, ax, wfa_grouped_results, objective_fn):
+        wfe = cls.oos_walk_forward_efficiency(wfa_grouped_results, objective_fn)
+        labels = [oos_wf.test.start.date() for (_, oos_wf, _) in wfa_grouped_results]
         x = np.arange(len(labels))
         width = 0.35
 
@@ -330,18 +330,18 @@ class Analysis:
         plt.setp(fig.axes[0].get_xticklabels(), fontsize=10, rotation='vertical')
 
     @classmethod
-    def oos_walk_forward_vs_in_sample(cls, wfa_results, metric_fn):
-        ins_metrics = [[metric_fn(r) for r in ins] for (ins, _, _) in wfa_results]
-        oos_wf_metrics = [metric_fn(oos_wf) for (_, oos_wf, _) in wfa_results]
+    def oos_walk_forward_vs_in_sample(cls, wfa_grouped_results, metric_fn):
+        ins_metrics = [[metric_fn(r) for r in ins] for (ins, _, _) in wfa_grouped_results]
+        oos_wf_metrics = [metric_fn(oos_wf) for (_, oos_wf, _) in wfa_grouped_results]
         percentiles = [percentileofscore(ins, oos) for (ins, oos) in zip(ins_metrics, oos_wf_metrics)]
         return ins_metrics, oos_wf_metrics, percentiles
 
     @classmethod
-    def oos_walk_forward_vs_in_sample_graph(cls, fig, ax, wfa_results, metric_fn, metric_name):
-        ins_metrics, oos_metrics, percentiles = cls.oos_walk_forward_vs_in_sample(wfa_results, metric_fn)
+    def oos_walk_forward_vs_in_sample_graph(cls, fig, ax, wfa_grouped_results, metric_fn, metric_name):
+        ins_metrics, oos_metrics, percentiles = cls.oos_walk_forward_vs_in_sample(wfa_grouped_results, metric_fn)
         ax.boxplot(ins_metrics,
-                   positions=np.arange(len(wfa_results)),
-                   labels=[oos_wf.test.start.date() for (_, oos_wf, _) in wfa_results])
+                   positions=np.arange(len(wfa_grouped_results)),
+                   labels=[oos_wf.test.start.date() for (_, oos_wf, _) in wfa_grouped_results])
         lines = ax.plot(oos_metrics)
         xy = lines[0].get_xydata()
         for (i, pct) in enumerate(percentiles):
@@ -350,18 +350,18 @@ class Analysis:
         ax.set_title(f"OOS vs INS {metric_name}")
 
     @classmethod
-    def oos_walk_forward_vs_oos_rejected(cls, wfa_results, metric_fn):
-        oos_rej_metrics = [[metric_fn(r) for r in oos_rej] for (_, _, oos_rej) in wfa_results]
-        oos_wf_metrics = [metric_fn(oos_wf) for (_, oos_wf, _) in wfa_results]
+    def oos_walk_forward_vs_oos_rejected(cls, wfa_grouped_results, metric_fn):
+        oos_rej_metrics = [[metric_fn(r) for r in oos_rej] for (_, _, oos_rej) in wfa_grouped_results]
+        oos_wf_metrics = [metric_fn(oos_wf) for (_, oos_wf, _) in wfa_grouped_results]
         percentiles = [percentileofscore(oos_rej, oos) for (oos_rej, oos) in zip(oos_rej_metrics, oos_wf_metrics)]
         return oos_rej_metrics, oos_wf_metrics, percentiles
 
     @classmethod
-    def oos_walk_forward_vs_oos_rejected_graph(cls, fig, ax, wfa_results, metric_fn, metric_name):
-        oos_rej_metrics, oos_metrics, percentiles = cls.oos_walk_forward_vs_oos_rejected(wfa_results, metric_fn)
+    def oos_walk_forward_vs_oos_rejected_graph(cls, fig, ax, wfa_grouped_results, metric_fn, metric_name):
+        oos_rej_metrics, oos_metrics, percentiles = cls.oos_walk_forward_vs_oos_rejected(wfa_grouped_results, metric_fn)
         ax.boxplot(oos_rej_metrics,
-                   positions=np.arange(len(wfa_results)),
-                   labels=[oos_wf.test.start.date() for (_, oos_wf, _) in wfa_results])
+                   positions=np.arange(len(wfa_grouped_results)),
+                   labels=[oos_wf.test.start.date() for (_, oos_wf, _) in wfa_grouped_results])
         lines = ax.plot(oos_metrics)
         xy = lines[0].get_xydata()
         for (i, pct) in enumerate(percentiles):
@@ -395,12 +395,12 @@ class Analysis:
         return top, btm
 
     @classmethod
-    def wfa_equity_curve_plot(cls, fig, ax, wfa_results, oos_combined, label=""):
+    def wfa_equity_curve_plot(cls, fig, ax, wfa_grouped_results, oos_combined, label=""):
         """Graph equity curve stitched together from individual OOS tests.  NOTE: It may look like the stitched curve
         starts later than the single curve, that is because they perfectly overlap for the duration of the first OOS
         test.
         """
-        stitched = cls.stitch_oos_equity_curve(wfa_results)
+        stitched = cls.stitch_oos_equity_curve(wfa_grouped_results)
 
         ax.plot(stitched, label=f"{label}_stitched" if label else "stitched")
         ax.set_yscale("log")

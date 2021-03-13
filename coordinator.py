@@ -105,61 +105,59 @@ class Coordinator:
         self.initialize()
         concurrency = self.config["concurrency"]
         test_generator = self.test_set.tests()
-        try:
-            while True:
-                while not self.update_tests_state_from_api():
-                    self.logger.error("Error updating tests state from API")
-                    await asyncio.sleep(15)
 
-                self.logger.info(f"generator_done={self.generator_done} generated_cnt={self.generated_cnt} "
-                                 f"len(tests)={len(self.tests)} "
-                                 f"len(backtests)={len(self.backtests)} state_counter={self.state_counter}")
-                if (self.generator_done and self.state_counter[TestState.CREATED] == 0
-                        and self.state_counter[TestState.RUNNING] == 0
-                        and all(test.result_saved and test.log_saved for test in self.tests)):
+        while True:
+            while not self.update_tests_state_from_api():
+                self.logger.error("Error updating tests state from API")
+                await asyncio.sleep(15)
+
+            self.logger.info(f"generator_done={self.generator_done} generated_cnt={self.generated_cnt} "
+                             f"len(tests)={len(self.tests)} "
+                             f"len(backtests)={len(self.backtests)} state_counter={self.state_counter}")
+            if (self.generator_done and self.state_counter[TestState.CREATED] == 0
+                    and self.state_counter[TestState.RUNNING] == 0
+                    and all(test.result_saved and test.log_saved for test in self.tests)):
+                break
+
+            on_completed_tasks = []
+            for test in self.tests:
+                if test.state == TestState.COMPLETED and not (test.result_saved and test.log_saved):
+                    on_completed_tasks.append(asyncio.create_task(self.on_test_completed(test)))
+            # Await here in case any tests had errors and go back to CREATED state
+            self.logger.debug(f"Awaiting {len(on_completed_tasks)} on_completed tasks")
+            await asyncio.gather(*on_completed_tasks)
+
+            limit = concurrency - self.state_counter[TestState.RUNNING]
+            launched_tasks = []
+            created_tests = [t for t in self.tests if t.state == TestState.CREATED]
+            self.logger.debug(f"Launching up to {limit} new tests, queued={len(created_tests)}")
+            for test in created_tests:
+                if len(launched_tasks) >= limit:
                     break
 
-                on_completed_tasks = []
-                for test in self.tests:
-                    if test.state == TestState.COMPLETED and not (test.result_saved and test.log_saved):
-                        on_completed_tasks.append(asyncio.create_task(self.on_test_completed(test)))
-                # Await here in case any tests had errors and go back to CREATED state
-                self.logger.debug(f"Awaiting {len(on_completed_tasks)} on_completed tasks")
-                await asyncio.gather(*on_completed_tasks)
+                launched_tasks.append(asyncio.create_task(self.launch_test(test)))
 
-                limit = concurrency - self.state_counter[TestState.RUNNING]
-                launched_tasks = []
-                created_tests = [t for t in self.tests if t.state == TestState.CREATED]
-                self.logger.debug(f"Launching up to {limit} new tests, queued={len(created_tests)}")
-                for test in created_tests:
-                    if len(launched_tasks) >= limit:
-                        break
+            while len(launched_tasks) < limit and not self.generator_done:
+                test = self.get_next_test(test_generator)
+                if test is None:
+                    self.generator_done = True
+                    break
+                if test == TestSet.NO_OP:
+                    self.logger.info("no-op test")
+                    break
 
+                self.update_test_state(test)
+                if test.state != TestState.CREATED:
+                    self.logger.info(f"{test.name} was previously launched")
+                else:
                     launched_tasks.append(asyncio.create_task(self.launch_test(test)))
 
-                while len(launched_tasks) < limit and not self.generator_done:
-                    test = self.get_next_test(test_generator)
-                    if test is None:
-                        self.generator_done = True
-                        break
-                    if test == TestSet.NO_OP:
-                        self.logger.info("no-op test")
-                        break
+            self.logger.debug(f"Awaiting {len(launched_tasks)} launched tasks and 15 sec sleep")
+            await asyncio.gather(*launched_tasks, asyncio.sleep(15))
 
-                    self.update_test_state(test)
-                    if test.state != TestState.CREATED:
-                        self.logger.info(f"{test.name} was previously launched")
-                    else:
-                        launched_tasks.append(asyncio.create_task(self.launch_test(test)))
-
-                self.logger.debug(f"Awaiting {len(launched_tasks)} launched tasks and 15 sec sleep")
-                await asyncio.gather(*launched_tasks, asyncio.sleep(15))
-
-            self.save_state()
-            self.logger.info("generating report")
-            self.generate_csv_report()
-        except Exception as exc:
-            self.logger.error("Unhandled error", exc_info=exc)
+        self.save_state()
+        self.logger.info("generating report")
+        self.generate_csv_report()
 
     def get_next_test(self, generator):
         while True:

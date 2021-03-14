@@ -38,20 +38,21 @@ class Analysis:
                 dupes.extend(t for t in tests if tuple(t.params.items()) == p)
         return dupes
 
-    def results(self, exclude_trades=False, exclude_rolling_window=False, exclude_charts=False):
+    def results(self, exclude_trades=False, exclude_rolling_window=False, exclude_charts=False, test_filter_fn=None):
         for t in self.tests():
             # Allows us to run this while backtests are running to see intermediate results
             if t.state == TestState.RUNNING:
                 continue
-            result = self.cio.read_test_result(t)
-            assert result is not None, f"{t.name} result missing"
-            if exclude_trades:
-                del result.bt_result["totalPerformance"]["ClosedTrades"]
-            if exclude_rolling_window:
-                del result.bt_result["rollingWindow"]
-            if exclude_charts:
-                del result.bt_result["charts"]
-            yield result
+            if test_filter_fn is None or test_filter_fn(t):
+                result = self.cio.read_test_result(t)
+                assert result is not None, f"{t.name} result missing"
+                if exclude_trades:
+                    del result.bt_result["totalPerformance"]["ClosedTrades"]
+                if exclude_rolling_window:
+                    del result.bt_result["rollingWindow"]
+                if exclude_charts:
+                    del result.bt_result["charts"]
+                yield result
 
     @classmethod
     def all_params_keys(cls, results):

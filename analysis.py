@@ -413,15 +413,16 @@ class Analysis:
         ax.legend()
 
     @classmethod
-    def params_plot(cls, fig, results):
+    def params_plot(cls, fig, axs, results, params_keys=None, label=None):
         """Graph change in parameters used"""
-        params_keys = list(k for k in results[0].test.params.keys() if k not in ["start", "end"])
+        if not params_keys:
+            params_keys = list(k for k in results[0].test.params.keys() if k not in ["start", "end"])
         xs = [r.test.start for r in results]
-        axs = fig.subplots(len(params_keys), 1)
         for (ax, key) in zip(axs, params_keys):
             ys = [r.test.params[key] for r in results]
-            ax.plot(xs, ys, label=key)
+            ax.plot(xs, ys, label=label)
             ax.set_title(key)
+            ax.legend()
 
     @classmethod
     def wfa_evaluation_profile(cls, oos_wf_results):

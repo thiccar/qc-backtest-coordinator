@@ -374,8 +374,8 @@ class Analysis:
         top_each = [r.daily_returns().nlargest(n).to_frame().assign(name=r.test.name) for r in results]
         btm_each = [r.daily_returns().nsmallest(n).to_frame().assign(name=r.test.name) for r in results]
 
-        return pd.concat(top_each, ignore_index=True, copy=False).nlargest(n, "y"),\
-               pd.concat(btm_each, ignore_index=True, copy=False).nsmallest(n, "y")
+        return pd.concat(top_each, copy=False).nlargest(n, "y"),\
+               pd.concat(btm_each, copy=False).nsmallest(n, "y")
 
     @classmethod
     def top_btm_trades(cls, results, n=10):

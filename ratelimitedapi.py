@@ -109,6 +109,6 @@ class RateLimitedApi(Api):
         if start is not None:
             params["start"] = start.timestamp()
         if end is not None:
-            params["end"] = start.timestamp()
+            params["end"] = end.timestamp()
 
         return self.Execute('live/read', params)

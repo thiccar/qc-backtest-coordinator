@@ -7,6 +7,7 @@ import functools
 import itertools
 import json
 import logging
+import more_itertools
 import statistics
 
 import matplotlib.pyplot as plt
@@ -268,6 +269,13 @@ class Analysis:
         return combined
 
     @classmethod
+    def concat_daily_rets(cls, results):
+        for (r0, r1) in more_itertools.pairwise(results):
+            assert r1.test.start == r0.test.end + timedelta(1)
+
+        return pd.concat([r.daily_returns() for r in results])
+
+    @classmethod
     def total_trades_bar_graph(cls, fig, ax, results, label_fn=None):
         """Sanity check - Graph number of trades to look for outliers"""
         xs = [label_fn(r) for r in results] if label_fn else None
@@ -495,7 +503,7 @@ class Analysis:
     def wfa_evaluation_profile_equity_swings(cls, oos_wf_results):
         # https://stackoverflow.com/questions/31543697/how-to-split-pandas-dataframe-based-on-difference-of-values-in-a-column
         # Best to debug this logic in a Jupyter notebook
-        df = pd.concat(oos_wf.daily_returns() for oos_wf in oos_wf_results).to_frame()
+        df = cls.concat_daily_rets(oos_wf_results).to_frame()
         df.columns = ["pct"]
         df["sign"] = np.sign(df["pct"])
 
@@ -505,10 +513,10 @@ class Analysis:
 
         runs = df.reset_index().groupby("run").agg({
             "x": lambda g: g.max() - g.min() + pd.Timedelta(1, "D"),
-            "pct": lambda g: (g + 1).prod()
+            "pct": lambda g: (g + 1).prod() - 1
         })
-        ups = runs[runs["pct"] > 1]
-        downs = runs[runs["pct"] < 1]
+        ups = runs[runs["pct"] > 0]
+        downs = runs[runs["pct"] < 0]
 
         max_up = ups.loc[ups["pct"].idxmax()]
         min_up = ups.loc[ups["pct"].idxmin()]
@@ -536,17 +544,11 @@ class Analysis:
 
     @classmethod
     def wfa_evaluation_rolling_window(cls, oos_wf_results, windowsize):
-        daily_returns = pd.concat(oos_wf.daily_returns() for oos_wf in oos_wf_results)
+        daily_returns = cls.concat_daily_rets(oos_wf_results)
+        rolling_windows = cls.rolling_returns(daily_returns, windowsize)
 
-        def window_return(rows):
-            if rows.index[-1] - daily_returns.index[0] >= windowsize:
-                return (rows + 1).prod()
-            else:
-                return np.nan
-
-        rolling_windows = daily_returns.rolling(windowsize, closed="neither").apply(window_return).dropna()
-        up_windows = rolling_windows[rolling_windows > 1]
-        down_windows = rolling_windows[rolling_windows < 1]
+        up_windows = rolling_windows[rolling_windows > 0]
+        down_windows = rolling_windows[rolling_windows < 0]
         header = [f"Rolling Window: {windowsize}", "Equity Run-Up", "Equity Drawdown"]
         body = [
             ["Maximum", up_windows.max(), down_windows.min()],
@@ -557,6 +559,11 @@ class Analysis:
             ["-1 StDev", up_windows.mean() - up_windows.std(), down_windows.mean() - down_windows.std()],
         ]
         return tabulate(body, headers=header, numalign="right", floatfmt=",.2f")
+
+    @classmethod
+    def rolling_returns(cls, daily_returns, windowsize):
+        min_idx = daily_returns.index[0] + windowsize
+        return daily_returns.rolling(windowsize, closed="neither").apply(lambda rows: (rows+1).prod() - 1).loc[min_idx:]
 
     @staticmethod
     def load_sfp():

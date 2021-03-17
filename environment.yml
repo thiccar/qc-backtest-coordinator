@@ -16,3 +16,4 @@ dependencies:
   - coolname
   - ciso8601
   - twilio
+  - requests

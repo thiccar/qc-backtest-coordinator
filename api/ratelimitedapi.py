@@ -99,3 +99,16 @@ class RateLimitedApi(Api):
         """
         data = {"projectId": project_id, "backtestId": backtest_id, "format": "json"}
         return self.Execute('backtests/read/log', data)
+
+    def read_live_algorithm(self, project_id, deploy_id = None, start=None, end=None):
+        """Version of read_live_algorithm in base API that accepts start and end parameters"""
+        params = {
+            'projectId': project_id,
+            'deployId': deploy_id
+        }
+        if start is not None:
+            params["start"] = start.timestamp()
+        if end is not None:
+            params["end"] = start.timestamp()
+
+        return self.Execute('live/read', params)

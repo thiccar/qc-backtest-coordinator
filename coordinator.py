@@ -3,10 +3,9 @@ from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 import logging
 from pathlib import Path
-from time import sleep
 
 from analysis import Analysis
-from api.ratelimitedapi import RateLimitedApi
+from ratelimitedapi import RateLimitedApi
 from coordinator_io import CoordinatorIO
 from testsets import Test, TestResult, TestResultValidationException, TestSet, TestState
 

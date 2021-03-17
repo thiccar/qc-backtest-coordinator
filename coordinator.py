@@ -4,7 +4,6 @@ from concurrent.futures import ThreadPoolExecutor
 import logging
 from pathlib import Path
 
-from analysis import Analysis
 from ratelimitedapi import RateLimitedApi
 from coordinator_io import CoordinatorIO
 from testsets import Test, TestResult, TestResultValidationException, TestSet, TestState
@@ -154,8 +153,6 @@ class Coordinator:
             await asyncio.gather(*launched_tasks, asyncio.sleep(15))
 
         self.save_state()
-        self.logger.info("generating report")
-        self.generate_csv_report()
 
     def get_next_test(self, generator):
         while True:
@@ -270,10 +267,6 @@ class Coordinator:
             self.cio.write_test_log(test, read_log_resp["BacktestLogs"])
             test.log_saved = True
         self.logger.info(f"{test.name} save_test_log success={read_log_resp['success']}")
-
-    def generate_csv_report(self):
-        anal = Analysis(self.cio.test_set_path)
-        anal.generate_csv_report()
 
     def load_state(self):
         """Load state from JSON file, if it exists. Restores state of this object and of test_set"""

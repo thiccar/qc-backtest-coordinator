@@ -1,0 +1,14 @@
+name: qc-backtest-coordinator
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - conda
+  - python=3.8
+  - tabulate
+  - dictdiffer
+  - backoff
+  - ratelimit
+  - coolname
+  - ciso8601
+  - twilio

@@ -14,11 +14,12 @@ from testsets import Test, TestResult, TestResultValidationException, TestSet, T
 class Coordinator:
     logger = logging.getLogger(__name__)
 
-    def __init__(self, test_set: TestSet, api: RateLimitedApi, config: dict, data_dir: Path):
+    def __init__(self, test_set: TestSet, api: RateLimitedApi, data_dir: Path, project_name: str, concurrency=1):
         self.test_set = test_set
         self.api = api
-        self.config = config
         self.data_dir = data_dir
+        self.project_name = project_name
+        self.concurrency = concurrency
 
         self.cio = None
         self.project = None
@@ -35,13 +36,12 @@ class Coordinator:
         self.compile_lock = asyncio.Lock()
 
     def initialize(self):
-        project_name = self.config["project_name"]
-        self.project = self.api.get_project_by_name(project_name)
+        self.project = self.api.get_project_by_name(self.project_name)
         assert self.project is not None
         self.logger.info(self.project)
 
         self.project_id = self.project["projectId"]
-        self.cio = CoordinatorIO(self.data_dir / f"{project_name}-{self.project_id}" / self.test_set.name(),
+        self.cio = CoordinatorIO(self.data_dir / f"{self.project_name}-{self.project_id}" / self.test_set.name(),
                                  read_only=False, mkdir=True)
 
         root_logger = logging.getLogger()
@@ -103,7 +103,6 @@ class Coordinator:
 
     async def run(self):
         self.initialize()
-        concurrency = self.config["concurrency"]
         test_generator = self.test_set.tests()
 
         while True:
@@ -127,7 +126,7 @@ class Coordinator:
             self.logger.debug(f"Awaiting {len(on_completed_tasks)} on_completed tasks")
             await asyncio.gather(*on_completed_tasks)
 
-            limit = concurrency - self.state_counter[TestState.RUNNING]
+            limit = self.concurrency - self.state_counter[TestState.RUNNING]
             launched_tasks = []
             created_tests = [t for t in self.tests if t.state == TestState.CREATED]
             self.logger.debug(f"Launching up to {limit} new tests, queued={len(created_tests)}")

@@ -1,8 +1,6 @@
 from abc import *
 import copy
 from datetime import date, datetime, timedelta
-import dateutil as du
-from dateutil.relativedelta import relativedelta
 from decimal import Decimal
 from enum import Enum
 import hashlib
@@ -15,6 +13,8 @@ from babel.numbers import parse_decimal
 import ciso8601
 import coolname
 import coolname.data
+import dateutil as du
+from dateutil.relativedelta import relativedelta
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import ParameterGrid

@@ -271,18 +271,26 @@ class TestResult:
 
     def equity_time_series(self):
         if self._equity_time_series is None:
-            ts = self.bt_result["charts"]["Strategy Equity"]["Series"]["Equity"]["Values"]
-            df = pd.DataFrame(ts)
-            df["x"] = pd.to_datetime(df["x"], unit="s", utc=True)  # See BaseResultsHandler.Sample() in LEAN for UTC
-            df["x"] = df["x"].dt.tz_convert("America/New_York")
-            df.set_index("x", inplace=True)
-
-            self._equity_time_series = df["y"]
+            values = self.bt_result["charts"]["Strategy Equity"]["Series"]["Equity"]["Values"]
+            self._equity_time_series = self.equity_values_to_time_series(values)
 
         return self._equity_time_series
 
+    @classmethod
+    def equity_values_to_time_series(cls, values):
+        df = pd.DataFrame(values)
+        df["x"] = pd.to_datetime(df["x"], unit="s", utc=True)  # See BaseResultsHandler.Sample() in LEAN for UTC
+        df["x"] = df["x"].dt.tz_convert("America/New_York")
+        df.set_index("x", inplace=True)
+
+        return df["y"]
+
     def daily_returns(self):
-        return self.equity_time_series().resample("1D").last().dropna().pct_change().dropna()
+        return self.equity_time_series_daily_returns(self.equity_time_series())
+
+    @classmethod
+    def equity_time_series_daily_returns(cls, ts):
+        return ts.resample("1D").last().dropna().pct_change().dropna()
 
     @classmethod
     def parse_dollars(cls, s: str) -> Decimal:

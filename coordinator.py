@@ -3,6 +3,9 @@ from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 import logging
 from pathlib import Path
+import time
+
+from ratelimiter import RateLimiter
 
 from ratelimitedapi import RateLimitedApi
 from coordinator_io import CoordinatorIO
@@ -32,6 +35,7 @@ class Coordinator:
 
         self.io_tpe = ThreadPoolExecutor(thread_name_prefix="io_tpe")
         self.compile_lock = asyncio.Lock()
+        self.launch_rate_limiter = RateLimiter(6, 60, self.on_launch_rate_limited)
 
     def initialize(self):
         self.project = self.api.get_project_by_name(self.project_name)
@@ -192,17 +196,22 @@ class Coordinator:
                     return
 
         await asyncio.sleep(6)
-        create_backtest_resp = await asyncio.get_running_loop().run_in_executor(
-            self.io_tpe, self.api.create_backtest, self.project_id, test.compile_id, test.name)
-        if create_backtest_resp["success"]:
-            test.backtest_id = create_backtest_resp["backtest"]["backtestId"]
-            test.state = TestState.RUNNING
-            self.logger.info(f"{test.name} launched compile_id={test.compile_id} backtest_id={test.backtest_id}")
-            self.save_state()
-        else:
-            test.launch_backtest_attempts += 1
-            self.logger.error(f"{test.name} create_backtest failed compile_id={test.compile_id}")
-            self.logger.error(create_backtest_resp)
+        async with self.launch_rate_limiter:
+            create_backtest_resp = await asyncio.get_running_loop().run_in_executor(
+                self.io_tpe, self.api.create_backtest, self.project_id, test.compile_id, test.name)
+            if create_backtest_resp["success"]:
+                test.backtest_id = create_backtest_resp["backtest"]["backtestId"]
+                test.state = TestState.RUNNING
+                self.logger.info(f"{test.name} launched compile_id={test.compile_id} backtest_id={test.backtest_id}")
+                self.save_state()
+            else:
+                test.launch_backtest_attempts += 1
+                self.logger.error(f"{test.name} create_backtest failed compile_id={test.compile_id}")
+                self.logger.error(create_backtest_resp)
+
+    async def on_launch_rate_limited(self, until):
+        duration = int(round(until - time.time()))
+        self.logger.info(f"Launch rate limited for {duration} secs")
 
     async def on_test_completed(self, test: Test):
         if not test.result_saved:

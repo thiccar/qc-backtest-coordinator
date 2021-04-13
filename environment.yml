@@ -13,6 +13,7 @@ dependencies:
   - dictdiffer
   - backoff
   - ratelimit
+  - ratelimiter
   - coolname
   - ciso8601
   - requests

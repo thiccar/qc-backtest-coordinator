@@ -15,5 +15,4 @@ dependencies:
   - ratelimit
   - coolname
   - ciso8601
-  - twilio
   - requests

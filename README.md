@@ -1,8 +1,3 @@
 # qc-backtest-coordinator
 
-Packages required beyond base anaconda:
-- ratelimit
-- backoff
-- tabulate
-- dictdiffer
-- coolname
+See environment.yml for package requirements (can be used to configure a Conda env)

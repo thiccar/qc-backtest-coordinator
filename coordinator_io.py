@@ -1,5 +1,6 @@
 import json
 import logging
+from pathlib import Path
 
 import dictdiffer
 
@@ -12,7 +13,7 @@ class CoordinatorIO:
     logger = logging.getLogger(__name__)
 
     def __init__(self, test_set_path, read_only=True, mkdir=False):
-        self.test_set_path = test_set_path
+        self.test_set_path = Path(test_set_path)
         if not read_only and mkdir and not self.test_set_path.exists():
             self.test_set_path.mkdir(parents=True)
         self.read_only = read_only

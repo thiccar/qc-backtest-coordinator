@@ -1,0 +1,9 @@
+{
+  "user_id": "[QuantConnect user id]",
+  "token": "[QuantConnect api token]",
+  "loglevel": "DEBUG",
+  "concurrency": 8,
+  "project_name": "[Full path to QuantConnect project]",
+  "module": "[Python module name where your test set is defined]",
+  "testset": "[Attribute in python module that represents a TestSet object]"
+}

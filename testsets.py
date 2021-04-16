@@ -219,12 +219,6 @@ class TestResult:
         df = self.losing_trades_df()
         return df.loc[df["ProfitLoss"].idxmax()]
 
-    def net_profit(self):
-        return self.parse_dollars(self.runtime_statistics["Net Profit"])
-
-    def annualized_net_profit(self):
-        return self.net_profit() * Decimal(timedelta(365) / self.duration())
-
     def drawdown(self):
         return self.parse_percent(self.statistics["Drawdown"])
 

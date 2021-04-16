@@ -229,7 +229,10 @@ class TestResult:
         return self.parse_percent(self.statistics["Win Rate"])
 
     def compounding_annual_return(self):
-        return self.parse_percent(self.statistics["Compounding Annual Return"])
+        if self.total_return() <= -1:
+            return self.total_return() / Decimal(self.duration() / timedelta(365))
+        else:
+            return self.parse_percent(self.statistics["Compounding Annual Return"])
 
     def total_return(self):
         return self.parse_percent(self.runtime_statistics["Return"])

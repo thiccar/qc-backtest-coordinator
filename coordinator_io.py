@@ -24,10 +24,13 @@ class CoordinatorIO:
     def read_test_result(self, test) -> TestResult:
         result_path = self.test_result_path(test)
         try:
+            log = None
+            if self.test_log_exists(test):
+                log = self.read_test_log(test)
             if result_path.exists():
                 with result_path.open() as f:
                     stored = json.load(f)
-                    result = TestResult.from_dict(stored)
+                    result = TestResult.from_dict(stored, log)
                     test.state = TestState.COMPLETED
                     self.validate_backtest_consistency(test, result)
                     result.test = test  # Re-use the passed in object

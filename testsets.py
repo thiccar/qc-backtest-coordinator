@@ -117,11 +117,12 @@ class TestResult:
     # This means that they will not be returned if value is 0 so we can't treat them being missing as an error.
     alpha_runtime_statistics_required_keys = []  # ["ReturnOverMaxDrawdown", "SortinoRatio"]
 
-    def __init__(self, test: Test, bt_result: dict):
+    def __init__(self, test: Test, bt_result: dict, log=None):
         self.test = test
         if not self.validate_backtest_results(bt_result):
             raise TestResultValidationException()
         self.bt_result = bt_result
+        self.log = log
         self.runtime_statistics = bt_result["runtimeStatistics"]
         self.statistics = bt_result["statistics"]
         self.trade_statistics = bt_result["totalPerformance"]["TradeStatistics"]
@@ -145,8 +146,8 @@ class TestResult:
         return {"test": self.test.to_dict(), "backtest": self.bt_result}
 
     @staticmethod
-    def from_dict(d: dict):
-        return TestResult(Test.from_dict(d["test"]), d["backtest"])
+    def from_dict(d: dict, log=None):
+        return TestResult(Test.from_dict(d["test"]), d["backtest"], log)
 
     """
     Utility methods for accessing result fields

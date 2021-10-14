@@ -89,6 +89,9 @@ class Test:
         cool_name = ''.join(x.capitalize() for x in generator.generate())
         return f"{prefix}_{cool_name}"
 
+    def period_str(self):
+        return f"{self.start.date().isoformat()} - {self.end.date().isoformat()}"
+
 
 class TestResultValidationException(Exception):
     """Sometimes results aren't available right away, so we have retries here.  Other times there is an actual issue

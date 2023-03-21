@@ -119,16 +119,15 @@ class TestResult:
 
     def __init__(self, test: Test, bt_result: dict, log=None):
         self.test = test
-        if not self.validate_backtest_results(bt_result):
-            raise TestResultValidationException()
         self.bt_result = bt_result
         self.log = log
-        self.runtime_statistics = bt_result["runtimeStatistics"]
-        self.statistics = bt_result["statistics"]
-        self.trade_statistics = bt_result["totalPerformance"]["TradeStatistics"]
-        self.alpha_runtime_statistics = bt_result["alphaRuntimeStatistics"]
+        self.runtime_statistics = bt_result["RuntimeStatistics"]
+        self.statistics = bt_result["Statistics"]
+        self.trade_statistics = bt_result["TotalPerformance"]["TradeStatistics"]
+        self.alpha_runtime_statistics = bt_result["AlphaRuntimeStatistics"]
 
         self._closed_trades_df = None
+        self._exposure_time_series = None
         self._equity_time_series = None
 
     @classmethod
@@ -160,7 +159,7 @@ class TestResult:
 
     def closed_trades_df(self):
         if self._closed_trades_df is None:
-            ct = self.bt_result["totalPerformance"]["ClosedTrades"]
+            ct = self.bt_result["TotalPerformance"]["ClosedTrades"]
             for t in ct:
                 t["Symbol"] = t["Symbol"]["ID"]
                 t["EntryTime"] = entry_time = ciso8601.parse_datetime(t["EntryTime"])
@@ -272,13 +271,26 @@ class TestResult:
 
     def equity_time_series(self):
         if self._equity_time_series is None:
-            values = self.bt_result["charts"]["Strategy Equity"]["Series"]["Equity"]["Values"]
-            self._equity_time_series = self.equity_values_to_time_series(values)
+            values = self.bt_result["Charts"]["Strategy Equity"]["Series"]["Equity"]["Values"]
+            self._equity_time_series = self.values_to_time_series(values)
 
         return self._equity_time_series
 
+    def exposure_time_series(self):
+        if self._exposure_time_series is None:
+            long = self.bt_result["Charts"]["Exposure"]["Series"]["Base - Long Ratio"]["Values"]
+            short = self.bt_result["Charts"]["Exposure"]["Series"]["Base - Short Ratio"]["Values"]
+            long_series = self.values_to_time_series(long)
+            short_series = self.values_to_time_series(short)
+            self._exposure_time_series = pd.DataFrame({"long": long_series, "short": short_series})
+        return self._exposure_time_series
+
+    def benchmark_time_series(self):
+        values = self.bt_result["Charts"]["Benchmark"]["Series"]["Benchmark"]["Values"]
+        return self.values_to_time_series(values)
+
     @classmethod
-    def equity_values_to_time_series(cls, values):
+    def values_to_time_series(cls, values):
         df = pd.DataFrame(values)
         df["x"] = pd.to_datetime(df["x"], unit="s", utc=True)  # See BaseResultsHandler.Sample() in LEAN for UTC
         df["x"] = df["x"].dt.tz_convert("America/New_York")
